@@ -7,13 +7,17 @@ use simplelog::*;
 extern crate ini;
 use self::ini::Ini;
 
+use crate::database::DbTask;
 use std::fs::OpenOptions;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
 mod database;
+mod onewire;
 
 fn log_location() -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
@@ -78,6 +82,14 @@ fn main() {
     //common thread stuff
     let mut threads = vec![];
     let cancel_flag = Arc::new(AtomicBool::new(false));
+    let devices = onewire::Devices {
+        sensors: vec![],
+        sensor_boards: vec![],
+        relays: vec![],
+        relay_boards: vec![],
+    };
+    let onewire_devices = Arc::new(RwLock::new(devices));
+    let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //thread comm channel
 
     //creating db thread
     let mut db = database::Database {
@@ -86,12 +98,29 @@ fn main() {
         dbname: None,
         username: None,
         password: None,
+        receiver: rx,
     };
     let worker_cancel_flag = cancel_flag.clone();
+    let devices_cloned = onewire_devices.clone();
     let thread_builder = thread::Builder::new().name("db".into()); //thread name
     let thread_handler = thread_builder
         .spawn(move || {
-            db.worker(worker_cancel_flag);
+            db.worker(worker_cancel_flag, devices_cloned);
+        })
+        .unwrap();
+    threads.push(thread_handler);
+
+    //creating onewire thread
+    let mut onewire = onewire::OneWire {
+        name: "onewire".to_string(),
+        transmitter: tx,
+    };
+    let worker_cancel_flag = cancel_flag.clone();
+    let devices_cloned = onewire_devices.clone();
+    let thread_builder = thread::Builder::new().name("onewire".into()); //thread name
+    let thread_handler = thread_builder
+        .spawn(move || {
+            onewire.worker(worker_cancel_flag, devices_cloned);
         })
         .unwrap();
     threads.push(thread_handler);
