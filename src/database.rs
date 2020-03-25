@@ -10,6 +10,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, RwLock};
 
 use crate::onewire;
+use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -53,6 +54,8 @@ impl Database {
         info!("{}: Starting thread", self.name);
         let mut reload_devices = true;
         let mut flush_data = Instant::now();
+        let mut sensor_counters = HashMap::new();
+        let mut relay_counters = HashMap::new();
 
         let mut builder =
             SslConnector::builder(SslMethod::tls()).expect("SslConnector::builder error");
@@ -78,22 +81,20 @@ impl Database {
                             info!("{}: Reload devices requested", self.name);
                             reload_devices = true;
                         }
-                        CommandCode::IncrementSensorCounter => {
-                            match t.value {
-                                Some(id) => {
-                                    //todo
-                                }
-                                _ => {}
+                        CommandCode::IncrementSensorCounter => match t.value {
+                            Some(id) => {
+                                let counter = sensor_counters.entry(id).or_insert(0 as u32);
+                                *counter += 1;
                             }
-                        }
-                        CommandCode::IncrementRelayCounter => {
-                            match t.value {
-                                Some(id) => {
-                                    //todo
-                                }
-                                _ => {}
+                            _ => {}
+                        },
+                        CommandCode::IncrementRelayCounter => match t.value {
+                            Some(id) => {
+                                let counter = relay_counters.entry(id).or_insert(0 as u32);
+                                *counter += 1;
                             }
-                        }
+                            _ => {}
+                        },
                     }
                 }
                 _ => (),
