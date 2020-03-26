@@ -52,11 +52,15 @@ impl Database {
     fn load_devices(&mut self) {
         match self.conn.borrow_mut() {
             Some(client) => {
+                let mut dev = self.devices.write().unwrap();
+
                 info!("{}: Loading data from table 'kind'...", self.name);
+                dev.kinds.clear();
                 for row in client.query("select * from kind", &[]).unwrap() {
                     let id_kind: i32 = row.get("id_kind");
                     let name: String = row.get("name");
-                    info!("Got kind: {}:{}", id_kind, name);
+                    debug!("Got kind: {}: {}", id_kind, name);
+                    dev.kinds.insert(id_kind, name);
                 }
             }
             None => {

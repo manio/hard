@@ -1,4 +1,5 @@
 use crate::database::{CommandCode, DbTask};
+use std::collections::HashMap;
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -35,6 +36,7 @@ pub struct RelayBoard {
 }
 
 pub struct Devices {
+    pub kinds: HashMap<i32, String>,
     pub sensors: Vec<Sensor>,
     pub sensor_boards: Vec<SensorBoard>,
     pub relays: Vec<Relay>,

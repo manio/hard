@@ -8,6 +8,7 @@ extern crate ini;
 use self::ini::Ini;
 
 use crate::database::DbTask;
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -83,6 +84,7 @@ fn main() {
     let mut threads = vec![];
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let devices = onewire::Devices {
+        kinds: HashMap::new(),
         sensors: vec![],
         sensor_boards: vec![],
         relays: vec![],
