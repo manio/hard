@@ -8,8 +8,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub struct Sensor {
-    pub id_sensor: u32,
-    pub id_kind: u32,
+    pub id_sensor: i32,
+    pub id_kind: i32,
     pub name: String,
     pub associated_relays: Vec<Relay>,
 }
@@ -22,7 +22,7 @@ pub struct SensorBoard {
 }
 
 pub struct Relay {
-    pub id_relay: u32,
+    pub id_relay: i32,
     pub name: String,
     pub last_toggled: Option<Instant>,
     pub stop_at: Option<Instant>,
