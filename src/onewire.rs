@@ -44,10 +44,11 @@ pub struct Devices {
 pub struct OneWire {
     pub name: String,
     pub transmitter: Sender<DbTask>,
+    pub devices: Arc<RwLock<Devices>>,
 }
 
 impl OneWire {
-    pub fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>, devices: Arc<RwLock<Devices>>) {
+    pub fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
 
         loop {

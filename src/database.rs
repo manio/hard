@@ -23,6 +23,7 @@ pub struct Database {
     pub password: Option<String>,
     pub receiver: Receiver<DbTask>,
     pub conn: Option<postgres::Client>,
+    pub devices: Arc<RwLock<onewire::Devices>>,
 }
 
 #[derive(Debug)]
@@ -67,11 +68,7 @@ impl Database {
         }
     }
 
-    pub fn worker(
-        &mut self,
-        worker_cancel_flag: Arc<AtomicBool>,
-        devices: Arc<RwLock<onewire::Devices>>,
-    ) {
+    pub fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
         let mut reload_devices = true;
         let mut flush_data = Instant::now();

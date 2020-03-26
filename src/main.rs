@@ -92,6 +92,7 @@ fn main() {
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //thread comm channel
 
     //creating db thread
+    let devices_cloned = onewire_devices.clone();
     let mut db = database::Database {
         name: "postgres".to_string(),
         host: None,
@@ -100,28 +101,29 @@ fn main() {
         password: None,
         receiver: rx,
         conn: None,
+        devices: devices_cloned,
     };
     let worker_cancel_flag = cancel_flag.clone();
-    let devices_cloned = onewire_devices.clone();
     let thread_builder = thread::Builder::new().name("db".into()); //thread name
     let thread_handler = thread_builder
         .spawn(move || {
-            db.worker(worker_cancel_flag, devices_cloned);
+            db.worker(worker_cancel_flag);
         })
         .unwrap();
     threads.push(thread_handler);
 
     //creating onewire thread
+    let devices_cloned = onewire_devices.clone();
     let mut onewire = onewire::OneWire {
         name: "onewire".to_string(),
         transmitter: tx,
+        devices: devices_cloned,
     };
     let worker_cancel_flag = cancel_flag.clone();
-    let devices_cloned = onewire_devices.clone();
     let thread_builder = thread::Builder::new().name("onewire".into()); //thread name
     let thread_handler = thread_builder
         .spawn(move || {
-            onewire.worker(worker_cancel_flag, devices_cloned);
+            onewire.worker(worker_cancel_flag);
         })
         .unwrap();
     threads.push(thread_handler);
