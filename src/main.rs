@@ -99,6 +99,7 @@ fn main() {
         username: None,
         password: None,
         receiver: rx,
+        conn: None,
     };
     let worker_cancel_flag = cancel_flag.clone();
     let devices_cloned = onewire_devices.clone();

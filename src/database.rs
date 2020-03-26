@@ -10,6 +10,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, RwLock};
 
 use crate::onewire;
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -21,6 +22,7 @@ pub struct Database {
     pub username: Option<String>,
     pub password: Option<String>,
     pub receiver: Receiver<DbTask>,
+    pub conn: Option<postgres::Client>,
 }
 
 #[derive(Debug)]
@@ -46,6 +48,25 @@ impl Database {
         self.password = section.get("password").cloned();
     }
 
+    fn load_devices(&mut self) {
+        match self.conn.borrow_mut() {
+            Some(client) => {
+                info!("{}: Loading data from table 'kind'...", self.name);
+                for row in client.query("select * from kind", &[]).unwrap() {
+                    let id_kind: i32 = row.get("id_kind");
+                    let name: String = row.get("name");
+                    info!("Got kind: {}:{}", id_kind, name);
+                }
+            }
+            None => {
+                error!(
+                    "{}: no active database connection -> cannot load config",
+                    self.name
+                );
+            }
+        }
+    }
+
     pub fn worker(
         &mut self,
         worker_cancel_flag: Arc<AtomicBool>,
@@ -61,7 +82,6 @@ impl Database {
             SslConnector::builder(SslMethod::tls()).expect("SslConnector::builder error");
         builder.set_verify(SslVerifyMode::NONE); //allow self-signed certificates
         let connector = MakeTlsConnector::new(builder.build());
-        let mut conn: Option<postgres::Client> = None;
 
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
@@ -101,7 +121,7 @@ impl Database {
             }
 
             //(re)connect / load config when necessary
-            if conn.is_none() {
+            if self.conn.is_none() {
                 debug!("{}: Loading db config...", self.name);
                 self.load_db_config();
 
@@ -122,14 +142,14 @@ impl Database {
                     info!("{}: Connecting to: {}", self.name, connectionstring);
                     let client = postgres::Client::connect(&connectionstring, connector.clone());
                     match client {
+                        Ok(c) => {
+                            self.conn = Some(c);
+                            info!("{}: Connected successfully", self.name);
+                        }
                         Err(e) => {
-                            conn = None;
+                            self.conn = None;
                             error!("{}: PostgreSQL connection error: {:?}", self.name, e);
                             info!("{}: Trying to reconnect...", self.name);
-                        }
-                        Ok(c) => {
-                            conn = Some(c);
-                            info!("{}: Connected successfully", self.name);
                         }
                     }
                 } else {
@@ -141,10 +161,10 @@ impl Database {
             }
 
             //load devices / do idle SQL tasks
-            if conn.is_some() {
+            if self.conn.is_some() {
                 if reload_devices {
                     info!("{}: loading devices from database...", self.name);
-                    //todo
+                    self.load_devices();
                     reload_devices = false;
                 }
                 if flush_data.elapsed().as_secs() > 10 {
