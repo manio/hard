@@ -55,11 +55,11 @@ impl OneWire {
 
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
-                debug!("{}: Got terminate signal from main", self.name);
+                debug!("Got terminate signal from main");
                 break;
             }
 
-            debug!("{}: doing stuff", self.name);
+            debug!("doing stuff");
             let task = DbTask {
                 command: CommandCode::ReloadDevices,
                 value: None,

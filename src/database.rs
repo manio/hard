@@ -87,15 +87,15 @@ impl Database {
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
                 //todo: check if we have all SQL data flushed
-                debug!("{}: Got terminate signal from main", self.name);
+                debug!("Got terminate signal from main");
                 break;
             }
 
             match self.receiver.try_recv() {
                 Ok(t) => {
                     debug!(
-                        "{}: Received DbTask: command: {:?} value: {:?}",
-                        self.name, t.command, t.value
+                        "Received DbTask: command: {:?} value: {:?}",
+                        t.command, t.value
                     );
                     match t.command {
                         CommandCode::ReloadDevices => {
@@ -123,7 +123,7 @@ impl Database {
 
             //(re)connect / load config when necessary
             if self.conn.is_none() {
-                debug!("{}: Loading db config...", self.name);
+                debug!("Loading db config...");
                 self.load_db_config();
 
                 if self.host.is_some()
@@ -154,7 +154,7 @@ impl Database {
                         }
                     }
                 } else {
-                    debug!(
+                    error!(
                         "{}: postgres config is not OK, check the config file",
                         self.name
                     );
@@ -169,7 +169,7 @@ impl Database {
                     reload_devices = false;
                 }
                 if flush_data.elapsed().as_secs() > 10 {
-                    debug!("{}: flushing local data to db...", self.name);
+                    debug!("flushing local data to db...");
                     //todo
                     flush_data = Instant::now();
                 }
