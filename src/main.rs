@@ -85,9 +85,7 @@ fn main() {
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let devices = onewire::Devices {
         kinds: HashMap::new(),
-        sensors: vec![],
         sensor_boards: vec![],
-        relays: vec![],
         relay_boards: vec![],
     };
     let onewire_devices = Arc::new(RwLock::new(devices));

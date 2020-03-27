@@ -62,6 +62,25 @@ impl Database {
                     debug!("Got kind: {}: {}", id_kind, name);
                     dev.kinds.insert(id_kind, name);
                 }
+
+                info!("{}: Loading data from table 'sensor'...", self.name);
+                dev.sensor_boards.clear();
+                for row in client.query("select * from sensor", &[]).unwrap() {
+                    let id_sensor: i32 = row.get("id_sensor");
+                    let id_kind: i32 = row.get("id_kind");
+                    let name: String = row.get("name");
+                    let address: i32 = row.get("address");
+                    let bit: i16 = row.get("bit");
+                    debug!(
+                        "Got sensor: id_sensor={} kind={:?} name={:?} address={} bit={}",
+                        id_sensor,
+                        dev.kinds.get(&id_kind).unwrap(),
+                        name,
+                        address,
+                        bit
+                    );
+                    dev.add_sensor(id_sensor, id_kind, name, address as u64, bit as u8);
+                }
             }
             None => {
                 error!(
