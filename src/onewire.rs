@@ -17,7 +17,7 @@ pub struct SensorBoard {
     pub pio_a: Option<Sensor>,
     pub pio_b: Option<Sensor>,
     pub ow_address: u64,
-    pub last_value: u8,
+    pub last_value: Option<u8>,
     pub file: Option<File>,
 }
 
@@ -31,7 +31,7 @@ pub struct Relay {
 pub struct RelayBoard {
     pub relay: [Option<Relay>; 8],
     pub ow_address: u64,
-    pub last_value: u8,
+    pub last_value: Option<u8>,
     pub file: Option<File>,
 }
 
