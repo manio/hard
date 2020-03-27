@@ -62,8 +62,8 @@ impl Devices {
                     pio_a: None,
                     pio_b: None,
                     ow_address: address,
-                    file: None,
                     last_value: None,
+                    file: None,
                 });
                 self.sensor_boards.last_mut().unwrap()
             }
@@ -85,6 +85,36 @@ impl Devices {
             }
             _ => {}
         }
+    }
+
+    pub fn add_relay(&mut self, id_relay: i32, name: String, address: u64, bit: u8) {
+        //find or create a relay board
+        let relay_board = match self
+            .relay_boards
+            .iter_mut()
+            .find(|b| b.ow_address == address)
+        {
+            Some(b) => b,
+            None => {
+                self.relay_boards.push(RelayBoard {
+                    relay: Default::default(),
+                    ow_address: address,
+                    last_value: None,
+                    file: None,
+                });
+                self.relay_boards.last_mut().unwrap()
+            }
+        };
+
+        //create and attach a relay
+        let relay = Relay {
+            id_relay,
+            name,
+            last_toggled: None,
+            stop_at: None,
+            override_to: None,
+        };
+        relay_board.relay[bit as usize] = Some(relay);
     }
 }
 

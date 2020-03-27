@@ -81,6 +81,20 @@ impl Database {
                     );
                     dev.add_sensor(id_sensor, id_kind, name, address as u64, bit as u8);
                 }
+
+                info!("{}: Loading data from table 'relay'...", self.name);
+                dev.relay_boards.clear();
+                for row in client.query("select * from relay", &[]).unwrap() {
+                    let id_relay: i32 = row.get("id_relay");
+                    let name: String = row.get("name");
+                    let address: i32 = row.get("address");
+                    let bit: i16 = row.get("bit");
+                    debug!(
+                        "Got relay: id_relay={} name={:?} address={} bit={}",
+                        id_relay, name, address, bit
+                    );
+                    dev.add_relay(id_relay, name, address as u64, bit as u8);
+                }
             }
             None => {
                 error!(
