@@ -32,12 +32,12 @@ fn logging_init() {
 
     let mut loggers = vec![];
 
-    let console_logger: Box<dyn SharedLogger> = match TermLogger::new(LevelFilter::Debug, conf) {
+    let console_logger: Box<dyn SharedLogger> = match TermLogger::new(LevelFilter::Info, conf) {
         Some(logger) => logger,
         None => {
             let mut conf_no_date = conf.clone();
             conf_no_date.time_format = Some("");
-            SimpleLogger::new(LevelFilter::Debug, conf_no_date)
+            SimpleLogger::new(LevelFilter::Info, conf_no_date)
         }
     };
     loggers.push(console_logger);
