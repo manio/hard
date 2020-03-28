@@ -1,6 +1,8 @@
 use crate::database::{CommandCode, DbTask};
 use std::collections::HashMap;
 use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
@@ -20,6 +22,47 @@ pub struct SensorBoard {
     pub ow_address: u64,
     pub last_value: Option<u8>,
     pub file: Option<File>,
+}
+
+impl SensorBoard {
+    fn read_state(&mut self) {
+        if self.file.is_none() {
+            let path = format!("/sys/bus/w1/devices/3a-{:012x}/state", self.ow_address);
+            let data_path = Path::new(&path);
+            info!(
+                "{:012x}: opening file: {}",
+                self.ow_address,
+                data_path.display()
+            );
+            self.file = File::open(data_path).ok();
+        }
+
+        match &mut self.file {
+            Some(file) => {
+                let mut new_value = [0u8; 1];
+                file.seek(SeekFrom::Start(0)).expect("file seek error");
+                file.read_exact(&mut new_value).expect("error reading");
+                debug!("{:012x}: read byte: {:#04x}", self.ow_address, new_value[0]);
+                match self.last_value {
+                    Some(val) => {
+                        //we have last value to compare with
+                        if new_value[0] != val {
+                            debug!(
+                                "{:012x}: change detected, old: {:#04x} new: {:#04x}",
+                                self.ow_address, val, new_value[0]
+                            );
+                            self.last_value = Some(new_value[0]);
+                        }
+                    }
+                    None => {
+                        //sensor read for the very first time
+                        self.last_value = Some(new_value[0]);
+                    }
+                }
+            }
+            None => (),
+        }
+    }
 }
 
 pub struct Relay {
@@ -162,6 +205,13 @@ impl OneWire {
             }
 
             debug!("doing stuff");
+            {
+                let mut dev = self.devices.write().unwrap();
+                for sb in &mut dev.sensor_boards {
+                    sb.read_state();
+                    thread::sleep(Duration::from_micros(500));
+                }
+            }
             let task = DbTask {
                 command: CommandCode::ReloadDevices,
                 value: None,
@@ -177,9 +227,6 @@ impl OneWire {
                 value: Some(1),
             };
             self.transmitter.send(task).unwrap();
-
-            thread::sleep(Duration::from_secs(10));
-            //thread::sleep(Duration::from_micros(500));
         }
         info!("{}: Stopping thread", self.name);
     }
