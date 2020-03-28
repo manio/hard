@@ -11,7 +11,8 @@ pub struct Sensor {
     pub id_sensor: i32,
     pub id_kind: i32,
     pub name: String,
-    pub associated_relays: Option<Vec<Relay>>,
+    pub associated_relays: Vec<i32>,
+    pub associated_yeelights: Vec<i32>,
 }
 pub struct SensorBoard {
     pub pio_a: Option<Sensor>,
@@ -59,6 +60,8 @@ impl Devices {
         name: String,
         address: u64,
         bit: u8,
+        associated_relays: Vec<i32>,
+        associated_yeelights: Vec<i32>,
     ) {
         //find or create a sensor board
         let sens_board = match self
@@ -84,7 +87,8 @@ impl Devices {
             id_sensor,
             id_kind,
             name,
-            associated_relays: None,
+            associated_relays,
+            associated_yeelights,
         };
         match bit {
             0 => {

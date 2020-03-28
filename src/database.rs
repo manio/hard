@@ -63,23 +63,35 @@ impl Database {
                     dev.kinds.insert(id_kind, name);
                 }
 
-                info!("{}: Loading data from table 'sensor'...", self.name);
+                info!("{}: Loading data from view 'sensors'...", self.name);
                 dev.sensor_boards.clear();
-                for row in client.query("select * from sensor", &[]).unwrap() {
+                for row in client.query("select * from sensors", &[]).unwrap() {
                     let id_sensor: i32 = row.get("id_sensor");
                     let id_kind: i32 = row.get("id_kind");
                     let name: String = row.get("name");
                     let address: i32 = row.get("address");
                     let bit: i16 = row.get("bit");
+                    let relay_agg: Vec<i32> = row.try_get("relay_agg").unwrap_or(vec![]);
+                    let yeelight_agg: Vec<i32> = row.try_get("yeelight_agg").unwrap_or(vec![]);
                     debug!(
-                        "Got sensor: id_sensor={} kind={:?} name={:?} address={} bit={}",
+                        "Got sensor: id_sensor={} kind={:?} name={:?} address={} bit={} relay_agg={:?} yeelight_agg={:?}",
                         id_sensor,
                         dev.kinds.get(&id_kind).unwrap(),
                         name,
                         address,
-                        bit
+                        bit,
+                        relay_agg,
+                        yeelight_agg,
                     );
-                    dev.add_sensor(id_sensor, id_kind, name, address as u64, bit as u8);
+                    dev.add_sensor(
+                        id_sensor,
+                        id_kind,
+                        name,
+                        address as u64,
+                        bit as u8,
+                        relay_agg,
+                        yeelight_agg,
+                    );
                 }
 
                 info!("{}: Loading data from table 'relay'...", self.name);
