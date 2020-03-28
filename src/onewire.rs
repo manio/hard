@@ -35,10 +35,20 @@ pub struct RelayBoard {
     pub file: Option<File>,
 }
 
+pub struct Yeelight {
+    pub id_yeelight: i32,
+    pub name: String,
+    pub ip_address: String,
+    pub last_toggled: Option<Instant>,
+    pub stop_at: Option<Instant>,
+    pub override_to: Option<Instant>,
+}
+
 pub struct Devices {
     pub kinds: HashMap<i32, String>,
     pub sensor_boards: Vec<SensorBoard>,
     pub relay_boards: Vec<RelayBoard>,
+    pub yeelight: Vec<Yeelight>,
 }
 
 impl Devices {
@@ -115,6 +125,19 @@ impl Devices {
             override_to: None,
         };
         relay_board.relay[bit as usize] = Some(relay);
+    }
+
+    pub fn add_yeelight(&mut self, id_yeelight: i32, name: String, ip_address: String) {
+        //create and add a yeelight
+        let light = Yeelight {
+            id_yeelight,
+            name,
+            ip_address,
+            last_toggled: None,
+            stop_at: None,
+            override_to: None,
+        };
+        self.yeelight.push(light);
     }
 }
 

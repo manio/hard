@@ -95,6 +95,25 @@ impl Database {
                     );
                     dev.add_relay(id_relay, name, address as u64, bit as u8);
                 }
+
+                info!("{}: Loading data from table 'yeelight'...", self.name);
+                dev.yeelight.clear();
+                for row in client
+                    .query(
+                        "select id_yeelight, name, ip_address::text ip_address from yeelight",
+                        &[],
+                    )
+                    .unwrap()
+                {
+                    let id_yeelight: i32 = row.get("id_yeelight");
+                    let name: String = row.get("name");
+                    let ip_address: String = row.get("ip_address");
+                    debug!(
+                        "Got yeelight: id_yeelight={} name={:?} ip_address={}",
+                        id_yeelight, name, ip_address
+                    );
+                    dev.add_yeelight(id_yeelight, name, ip_address);
+                }
             }
             None => {
                 error!(

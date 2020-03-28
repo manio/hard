@@ -87,6 +87,7 @@ fn main() {
         kinds: HashMap::new(),
         sensor_boards: vec![],
         relay_boards: vec![],
+        yeelight: vec![],
     };
     let onewire_devices = Arc::new(RwLock::new(devices));
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //thread comm channel
