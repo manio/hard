@@ -286,7 +286,7 @@ pub struct OneWire {
 }
 
 impl OneWire {
-    pub fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) {
+    pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
 
         loop {

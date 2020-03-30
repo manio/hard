@@ -117,7 +117,7 @@ fn main() {
     threads.push(thread_handler);
 
     //creating onewire thread
-    let mut onewire = onewire::OneWire {
+    let onewire = onewire::OneWire {
         name: "onewire".to_string(),
         transmitter: tx,
         sensor_devices: onewire_sensor_devices.clone(),
