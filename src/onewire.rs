@@ -75,6 +75,7 @@ pub struct Relay {
 pub struct RelayBoard {
     pub relay: [Option<Relay>; 8],
     pub ow_address: u64,
+    pub new_value: Option<u8>,
     pub last_value: Option<u8>,
     pub file: Option<File>,
 }
@@ -182,6 +183,7 @@ impl Devices {
                 let mut board = RelayBoard {
                     relay: Default::default(),
                     ow_address: address,
+                    new_value: None,
                     last_value: None,
                     file: None,
                 };
