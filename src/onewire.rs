@@ -15,6 +15,10 @@ pub const FAMILY_CODE_DS2408: u8 = 0x29;
 
 static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
 
+fn get_w1_device_name(family_code: u8, address: u64) -> String {
+    format!("{:02x}-{:012x}", family_code, address)
+}
+
 pub struct Sensor {
     pub id_sensor: i32,
     pub id_kind: i32,
@@ -34,13 +38,14 @@ pub struct SensorBoard {
 impl SensorBoard {
     fn open(&mut self) {
         let path = format!(
-            "{}/{:02x}-{:012x}/state",
-            W1_ROOT_PATH, self.ow_family, self.ow_address
+            "{}/{}/state",
+            W1_ROOT_PATH,
+            get_w1_device_name(self.ow_family, self.ow_address)
         );
         let data_path = Path::new(&path);
         info!(
-            "{:012x}: opening sensor file: {}",
-            self.ow_address,
+            "{}: opening sensor file: {}",
+            get_w1_device_name(self.ow_family, self.ow_address),
             data_path.display()
         );
         self.file = File::open(data_path).ok();
@@ -56,14 +61,20 @@ impl SensorBoard {
                 let mut new_value = [0u8; 1];
                 file.seek(SeekFrom::Start(0)).expect("file seek error");
                 file.read_exact(&mut new_value).expect("error reading");
-                debug!("{:012x}: read byte: {:#04x}", self.ow_address, new_value[0]);
+                debug!(
+                    "{}: read byte: {:#04x}",
+                    get_w1_device_name(self.ow_family, self.ow_address),
+                    new_value[0]
+                );
                 match self.last_value {
                     Some(val) => {
                         //we have last value to compare with
                         if new_value[0] != val {
                             debug!(
-                                "{:012x}: change detected, old: {:#04x} new: {:#04x}",
-                                self.ow_address, val, new_value[0]
+                                "{}: change detected, old: {:#04x} new: {:#04x}",
+                                get_w1_device_name(self.ow_family, self.ow_address),
+                                val,
+                                new_value[0]
                             );
                             return Some(new_value[0]);
                         }
@@ -100,13 +111,14 @@ pub struct RelayBoard {
 impl RelayBoard {
     fn open(&mut self) {
         let path = format!(
-            "{}/{:02x}-{:012x}/output",
-            W1_ROOT_PATH, self.ow_family, self.ow_address
+            "{}/{}/output",
+            W1_ROOT_PATH,
+            get_w1_device_name(self.ow_family, self.ow_address)
         );
         let data_path = Path::new(&path);
         info!(
-            "{:012x}: opening relay file: {}",
-            self.ow_address,
+            "{}: opening relay file: {}",
+            get_w1_device_name(self.ow_family, self.ow_address),
             data_path.display()
         );
         self.file = File::open(data_path).ok();
@@ -294,12 +306,11 @@ impl OneWire {
                                     if sb.pio_a.is_some() && (new_value & 0x01 != last_value & 0x01)
                                     {
                                         info!(
-                                            "{}: [{:02x}-{:012x} PIOA {}]: {:#04x}",
+                                            "{}: [{} PIOA {}]: {:#04x}",
                                             kinds_cloned
                                                 .get(&sb.pio_a.as_ref().unwrap().id_kind)
                                                 .unwrap(),
-                                            sb.ow_family,
-                                            sb.ow_address,
+                                            get_w1_device_name(sb.ow_family, sb.ow_address),
                                             sb.pio_a.as_ref().unwrap().name,
                                             new_value
                                         );
@@ -309,12 +320,11 @@ impl OneWire {
                                     if sb.pio_b.is_some() && (new_value & 0x04 != last_value & 0x04)
                                     {
                                         info!(
-                                            "{}: [{:02x}-{:012x} PIOB {}]: {:#04x}",
+                                            "{}: [{} PIOB {}]: {:#04x}",
                                             kinds_cloned
                                                 .get(&sb.pio_b.as_ref().unwrap().id_kind)
                                                 .unwrap(),
-                                            sb.ow_family,
-                                            sb.ow_address,
+                                            get_w1_device_name(sb.ow_family, sb.ow_address),
                                             sb.pio_b.as_ref().unwrap().name,
                                             new_value
                                         );
