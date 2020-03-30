@@ -69,15 +69,17 @@ impl Database {
                     let id_sensor: i32 = row.get("id_sensor");
                     let id_kind: i32 = row.get("id_kind");
                     let name: String = row.get("name");
+                    let family_code: Option<i16> = row.get("family_code");
                     let address: i32 = row.get("address");
                     let bit: i16 = row.get("bit");
                     let relay_agg: Vec<i32> = row.try_get("relay_agg").unwrap_or(vec![]);
                     let yeelight_agg: Vec<i32> = row.try_get("yeelight_agg").unwrap_or(vec![]);
                     debug!(
-                        "Got sensor: id_sensor={} kind={:?} name={:?} address={} bit={} relay_agg={:?} yeelight_agg={:?}",
+                        "Got sensor: id_sensor={} kind={:?} name={:?} family_code={:?} address={} bit={} relay_agg={:?} yeelight_agg={:?}",
                         id_sensor,
                         dev.kinds.get(&id_kind).unwrap(),
                         name,
+                        family_code,
                         address,
                         bit,
                         relay_agg,
@@ -87,6 +89,7 @@ impl Database {
                         id_sensor,
                         id_kind,
                         name,
+                        family_code,
                         address as u64,
                         bit as u8,
                         relay_agg,
@@ -99,13 +102,14 @@ impl Database {
                 for row in client.query("select * from relay", &[]).unwrap() {
                     let id_relay: i32 = row.get("id_relay");
                     let name: String = row.get("name");
+                    let family_code: Option<i16> = row.get("family_code");
                     let address: i32 = row.get("address");
                     let bit: i16 = row.get("bit");
                     debug!(
-                        "Got relay: id_relay={} name={:?} address={} bit={}",
-                        id_relay, name, address, bit
+                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={}",
+                        id_relay, name, family_code, address, bit
                     );
-                    dev.add_relay(id_relay, name, address as u64, bit as u8);
+                    dev.add_relay(id_relay, name, family_code, address as u64, bit as u8);
                 }
 
                 info!("{}: Loading data from table 'yeelight'...", self.name);

@@ -9,6 +9,10 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+//family codes for devices
+pub const FAMILY_CODE_DS2413: u8 = 0x3a;
+pub const FAMILY_CODE_DS2408: u8 = 0x29;
+
 pub struct Sensor {
     pub id_sensor: i32,
     pub id_kind: i32,
@@ -19,6 +23,7 @@ pub struct Sensor {
 pub struct SensorBoard {
     pub pio_a: Option<Sensor>,
     pub pio_b: Option<Sensor>,
+    pub ow_family: u8,
     pub ow_address: u64,
     pub last_value: Option<u8>,
     pub file: Option<File>,
@@ -27,7 +32,10 @@ pub struct SensorBoard {
 impl SensorBoard {
     fn read_state(&mut self) {
         if self.file.is_none() {
-            let path = format!("/sys/bus/w1/devices/3a-{:012x}/state", self.ow_address);
+            let path = format!(
+                "/sys/bus/w1/devices/{:#04x}-{:012x}/state",
+                self.ow_family, self.ow_address
+            );
             let data_path = Path::new(&path);
             info!(
                 "{:012x}: opening file: {}",
@@ -74,6 +82,7 @@ pub struct Relay {
 }
 pub struct RelayBoard {
     pub relay: [Option<Relay>; 8],
+    pub ow_family: u8,
     pub ow_address: u64,
     pub new_value: Option<u8>,
     pub last_value: Option<u8>,
@@ -82,7 +91,10 @@ pub struct RelayBoard {
 
 impl RelayBoard {
     fn open(&mut self) {
-        let path = format!("/sys/bus/w1/devices/29-{:012x}/state", self.ow_address);
+        let path = format!(
+            "/sys/bus/w1/devices/{:#04x}-{:012x}/state",
+            self.ow_family, self.ow_address
+        );
         let data_path = Path::new(&path);
         info!(
             "{:012x}: opening file: {}",
@@ -128,6 +140,7 @@ impl Devices {
         id_sensor: i32,
         id_kind: i32,
         name: String,
+        family_code: Option<i16>,
         address: u64,
         bit: u8,
         associated_relays: Vec<i32>,
@@ -144,6 +157,10 @@ impl Devices {
                 self.sensor_boards.push(SensorBoard {
                     pio_a: None,
                     pio_b: None,
+                    ow_family: match family_code {
+                        Some(family) => family as u8,
+                        None => FAMILY_CODE_DS2413,
+                    },
                     ow_address: address,
                     last_value: None,
                     file: None,
@@ -171,7 +188,14 @@ impl Devices {
         }
     }
 
-    pub fn add_relay(&mut self, id_relay: i32, name: String, address: u64, bit: u8) {
+    pub fn add_relay(
+        &mut self,
+        id_relay: i32,
+        name: String,
+        family_code: Option<i16>,
+        address: u64,
+        bit: u8,
+    ) {
         //find or create a relay board
         let relay_board = match self
             .relay_boards
@@ -182,6 +206,10 @@ impl Devices {
             None => {
                 let mut board = RelayBoard {
                     relay: Default::default(),
+                    ow_family: match family_code {
+                        Some(family) => family as u8,
+                        None => FAMILY_CODE_DS2408,
+                    },
                     ow_address: address,
                     new_value: None,
                     last_value: None,
