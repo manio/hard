@@ -30,19 +30,23 @@ pub struct SensorBoard {
 }
 
 impl SensorBoard {
+    fn open(&mut self) {
+        let path = format!(
+            "/sys/bus/w1/devices/{:02x}-{:012x}/state",
+            self.ow_family, self.ow_address
+        );
+        let data_path = Path::new(&path);
+        info!(
+            "{:012x}: opening sensor file: {}",
+            self.ow_address,
+            data_path.display()
+        );
+        self.file = File::open(data_path).ok();
+    }
+
     fn read_state(&mut self) {
         if self.file.is_none() {
-            let path = format!(
-                "/sys/bus/w1/devices/{:02x}-{:012x}/state",
-                self.ow_family, self.ow_address
-            );
-            let data_path = Path::new(&path);
-            info!(
-                "{:012x}: opening sensor file: {}",
-                self.ow_address,
-                data_path.display()
-            );
-            self.file = File::open(data_path).ok();
+            self.open();
         }
 
         match &mut self.file {
@@ -154,7 +158,7 @@ impl Devices {
         {
             Some(b) => b,
             None => {
-                self.sensor_boards.push(SensorBoard {
+                let mut sens_board = SensorBoard {
                     pio_a: None,
                     pio_b: None,
                     ow_family: match family_code {
@@ -164,7 +168,9 @@ impl Devices {
                     ow_address: address,
                     last_value: None,
                     file: None,
-                });
+                };
+                sens_board.open();
+                self.sensor_boards.push(sens_board);
                 self.sensor_boards.last_mut().unwrap()
             }
         };
