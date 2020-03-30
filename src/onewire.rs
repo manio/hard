@@ -210,7 +210,7 @@ impl Devices {
         {
             Some(b) => b,
             None => {
-                let mut board = RelayBoard {
+                let mut relay_board = RelayBoard {
                     relay: Default::default(),
                     ow_family: match family_code {
                         Some(family) => family as u8,
@@ -224,10 +224,10 @@ impl Devices {
 
                 //we probably can read the current state of relays but due to safety reasons
                 //assume that all relays are turned off by default
-                board.last_value = Some(0xff);
+                relay_board.last_value = Some(0xff);
 
-                board.open();
-                self.relay_boards.push(board);
+                relay_board.open();
+                self.relay_boards.push(relay_board);
                 self.relay_boards.last_mut().unwrap()
             }
         };
