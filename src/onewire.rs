@@ -187,6 +187,11 @@ impl Devices {
                     last_value: None,
                     file: None,
                 };
+
+                //we probably can read the current state of relays but due to safety reasons
+                //assume that all relays are turned off by default
+                board.last_value = Some(0xff);
+
                 board.open();
                 self.relay_boards.push(board);
                 self.relay_boards.last_mut().unwrap()
