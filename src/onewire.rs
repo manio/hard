@@ -92,7 +92,7 @@ pub struct RelayBoard {
 impl RelayBoard {
     fn open(&mut self) {
         let path = format!(
-            "/sys/bus/w1/devices/{:#04x}-{:012x}/state",
+            "/sys/bus/w1/devices/{:#04x}-{:012x}/output",
             self.ow_family, self.ow_address
         );
         let data_path = Path::new(&path);
