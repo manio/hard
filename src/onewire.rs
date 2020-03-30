@@ -79,6 +79,32 @@ pub struct RelayBoard {
     pub file: Option<File>,
 }
 
+impl RelayBoard {
+    fn open(&mut self) {
+        let path = format!("/sys/bus/w1/devices/29-{:012x}/state", self.ow_address);
+        let data_path = Path::new(&path);
+        info!(
+            "{:012x}: opening file: {}",
+            self.ow_address,
+            data_path.display()
+        );
+        self.file = File::open(data_path).ok();
+    }
+
+    fn save_state(&mut self) {
+        if self.file.is_none() {
+            self.open();
+        }
+
+        match &mut self.file {
+            Some(file) => {
+                //todo
+            }
+            None => (),
+        }
+    }
+}
+
 pub struct Yeelight {
     pub id_yeelight: i32,
     pub name: String,
@@ -153,12 +179,14 @@ impl Devices {
         {
             Some(b) => b,
             None => {
-                self.relay_boards.push(RelayBoard {
+                let mut board = RelayBoard {
                     relay: Default::default(),
                     ow_address: address,
                     last_value: None,
                     file: None,
-                });
+                };
+                board.open();
+                self.relay_boards.push(board);
                 self.relay_boards.last_mut().unwrap()
             }
         };
