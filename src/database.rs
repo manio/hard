@@ -23,7 +23,8 @@ pub struct Database {
     pub password: Option<String>,
     pub receiver: Receiver<DbTask>,
     pub conn: Option<postgres::Client>,
-    pub devices: Arc<RwLock<onewire::Devices>>,
+    pub sensor_devices: Arc<RwLock<onewire::SensorDevices>>,
+    pub relay_devices: Arc<RwLock<onewire::RelayDevices>>,
 }
 
 #[derive(Debug)]
@@ -52,19 +53,20 @@ impl Database {
     fn load_devices(&mut self) {
         match self.conn.borrow_mut() {
             Some(client) => {
-                let mut dev = self.devices.write().unwrap();
+                let mut sensor_dev = self.sensor_devices.write().unwrap();
+                let mut relay_dev = self.relay_devices.write().unwrap();
 
                 info!("{}: Loading data from table 'kind'...", self.name);
-                dev.kinds.clear();
+                sensor_dev.kinds.clear();
                 for row in client.query("select * from kind", &[]).unwrap() {
                     let id_kind: i32 = row.get("id_kind");
                     let name: String = row.get("name");
                     debug!("Got kind: {}: {}", id_kind, name);
-                    dev.kinds.insert(id_kind, name);
+                    sensor_dev.kinds.insert(id_kind, name);
                 }
 
                 info!("{}: Loading data from view 'sensors'...", self.name);
-                dev.sensor_boards.clear();
+                sensor_dev.sensor_boards.clear();
                 for row in client.query("select * from sensors", &[]).unwrap() {
                     let id_sensor: i32 = row.get("id_sensor");
                     let id_kind: i32 = row.get("id_kind");
@@ -77,7 +79,7 @@ impl Database {
                     debug!(
                         "Got sensor: id_sensor={} kind={:?} name={:?} family_code={:?} address={} bit={} relay_agg={:?} yeelight_agg={:?}",
                         id_sensor,
-                        dev.kinds.get(&id_kind).unwrap(),
+                        sensor_dev.kinds.get(&id_kind).unwrap(),
                         name,
                         family_code,
                         address,
@@ -85,7 +87,7 @@ impl Database {
                         relay_agg,
                         yeelight_agg,
                     );
-                    dev.add_sensor(
+                    sensor_dev.add_sensor(
                         id_sensor,
                         id_kind,
                         name,
@@ -98,7 +100,7 @@ impl Database {
                 }
 
                 info!("{}: Loading data from table 'relay'...", self.name);
-                dev.relay_boards.clear();
+                relay_dev.relay_boards.clear();
                 for row in client.query("select * from relay", &[]).unwrap() {
                     let id_relay: i32 = row.get("id_relay");
                     let name: String = row.get("name");
@@ -109,11 +111,11 @@ impl Database {
                         "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={}",
                         id_relay, name, family_code, address, bit
                     );
-                    dev.add_relay(id_relay, name, family_code, address as u64, bit as u8);
+                    relay_dev.add_relay(id_relay, name, family_code, address as u64, bit as u8);
                 }
 
                 info!("{}: Loading data from table 'yeelight'...", self.name);
-                dev.yeelight.clear();
+                relay_dev.yeelight.clear();
                 for row in client
                     .query(
                         "select id_yeelight, name, ip_address::text ip_address from yeelight",
@@ -128,7 +130,7 @@ impl Database {
                         "Got yeelight: id_yeelight={} name={:?} ip_address={}",
                         id_yeelight, name, ip_address
                     );
-                    dev.add_yeelight(id_yeelight, name, ip_address);
+                    relay_dev.add_yeelight(id_yeelight, name, ip_address);
                 }
             }
             None => {

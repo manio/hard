@@ -147,14 +147,17 @@ pub struct Yeelight {
     pub override_to: Option<Instant>,
 }
 
-pub struct Devices {
+pub struct SensorDevices {
     pub kinds: HashMap<i32, String>,
     pub sensor_boards: Vec<SensorBoard>,
+}
+
+pub struct RelayDevices {
     pub relay_boards: Vec<RelayBoard>,
     pub yeelight: Vec<Yeelight>,
 }
 
-impl Devices {
+impl SensorDevices {
     pub fn add_sensor(
         &mut self,
         id_sensor: i32,
@@ -209,7 +212,9 @@ impl Devices {
             _ => {}
         }
     }
+}
 
+impl RelayDevices {
     pub fn add_relay(
         &mut self,
         id_relay: i32,
@@ -276,7 +281,8 @@ impl Devices {
 pub struct OneWire {
     pub name: String,
     pub transmitter: Sender<DbTask>,
-    pub devices: Arc<RwLock<Devices>>,
+    pub sensor_devices: Arc<RwLock<SensorDevices>>,
+    pub relay_devices: Arc<RwLock<RelayDevices>>,
 }
 
 impl OneWire {
@@ -291,12 +297,13 @@ impl OneWire {
 
             debug!("doing stuff");
             {
-                let mut dev = self.devices.write().unwrap();
+                let mut sensor_dev = self.sensor_devices.write().unwrap();
+                let mut relay_dev = self.relay_devices.write().unwrap();
 
                 //fixme: do we really need to clone this HashMap to use it below?
-                let kinds_cloned = dev.kinds.clone();
+                let kinds_cloned = sensor_dev.kinds.clone();
 
-                for sb in &mut dev.sensor_boards {
+                for sb in &mut sensor_dev.sensor_boards {
                     match sb.read_state() {
                         //we have new state to process
                         Some(new_value) => {

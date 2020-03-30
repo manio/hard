@@ -83,17 +83,19 @@ fn main() {
     //common thread stuff
     let mut threads = vec![];
     let cancel_flag = Arc::new(AtomicBool::new(false));
-    let devices = onewire::Devices {
+    let sensor_devices = onewire::SensorDevices {
         kinds: HashMap::new(),
         sensor_boards: vec![],
+    };
+    let relay_devices = onewire::RelayDevices {
         relay_boards: vec![],
         yeelight: vec![],
     };
-    let onewire_devices = Arc::new(RwLock::new(devices));
+    let onewire_sensor_devices = Arc::new(RwLock::new(sensor_devices));
+    let onewire_relay_devices = Arc::new(RwLock::new(relay_devices));
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //thread comm channel
 
     //creating db thread
-    let devices_cloned = onewire_devices.clone();
     let mut db = database::Database {
         name: "postgres".to_string(),
         host: None,
@@ -102,7 +104,8 @@ fn main() {
         password: None,
         receiver: rx,
         conn: None,
-        devices: devices_cloned,
+        sensor_devices: onewire_sensor_devices.clone(),
+        relay_devices: onewire_relay_devices.clone(),
     };
     let worker_cancel_flag = cancel_flag.clone();
     let thread_builder = thread::Builder::new().name("db".into()); //thread name
@@ -114,11 +117,11 @@ fn main() {
     threads.push(thread_handler);
 
     //creating onewire thread
-    let devices_cloned = onewire_devices.clone();
     let mut onewire = onewire::OneWire {
         name: "onewire".to_string(),
         transmitter: tx,
-        devices: devices_cloned,
+        sensor_devices: onewire_sensor_devices.clone(),
+        relay_devices: onewire_relay_devices.clone(),
     };
     let worker_cancel_flag = cancel_flag.clone();
     let thread_builder = thread::Builder::new().name("onewire".into()); //thread name
