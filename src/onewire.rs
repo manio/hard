@@ -33,7 +33,7 @@ impl SensorBoard {
     fn read_state(&mut self) {
         if self.file.is_none() {
             let path = format!(
-                "/sys/bus/w1/devices/{:#04x}-{:012x}/state",
+                "/sys/bus/w1/devices/{:02x}-{:012x}/state",
                 self.ow_family, self.ow_address
             );
             let data_path = Path::new(&path);
@@ -92,7 +92,7 @@ pub struct RelayBoard {
 impl RelayBoard {
     fn open(&mut self) {
         let path = format!(
-            "/sys/bus/w1/devices/{:#04x}-{:012x}/output",
+            "/sys/bus/w1/devices/{:02x}-{:012x}/output",
             self.ow_family, self.ow_address
         );
         let data_path = Path::new(&path);
