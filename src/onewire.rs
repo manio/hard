@@ -44,7 +44,7 @@ impl SensorBoard {
         self.file = File::open(data_path).ok();
     }
 
-    fn read_state(&mut self) {
+    fn read_state(&mut self) -> Option<u8> {
         if self.file.is_none() {
             self.open();
         }
@@ -63,7 +63,7 @@ impl SensorBoard {
                                 "{:012x}: change detected, old: {:#04x} new: {:#04x}",
                                 self.ow_address, val, new_value[0]
                             );
-                            self.last_value = Some(new_value[0]);
+                            return Some(new_value[0]);
                         }
                     }
                     None => {
@@ -74,6 +74,8 @@ impl SensorBoard {
             }
             None => (),
         }
+
+        return None;
     }
 }
 
@@ -276,8 +278,54 @@ impl OneWire {
             debug!("doing stuff");
             {
                 let mut dev = self.devices.write().unwrap();
+
+                //fixme: do we really need to clone this HashMap to use it below?
+                let kinds_cloned = dev.kinds.clone();
+
                 for sb in &mut dev.sensor_boards {
-                    sb.read_state();
+                    match sb.read_state() {
+                        //we have new state to process
+                        Some(new_value) => {
+                            match sb.last_value {
+                                Some(last_value) => {
+                                    //checking for change on bit 0 (PIOA)
+                                    if sb.pio_a.is_some() && (new_value & 0x01 != last_value & 0x01)
+                                    {
+                                        info!(
+                                            "{}: [{:02x}-{:012x} PIOA {}]: {:#04x}",
+                                            kinds_cloned
+                                                .get(&sb.pio_a.as_ref().unwrap().id_kind)
+                                                .unwrap(),
+                                            sb.ow_family,
+                                            sb.ow_address,
+                                            sb.pio_a.as_ref().unwrap().name,
+                                            new_value
+                                        );
+                                        //todo: trigger change
+                                    }
+                                    //checking for change on bit 3 (PIOB)
+                                    if sb.pio_b.is_some() && (new_value & 0x04 != last_value & 0x04)
+                                    {
+                                        info!(
+                                            "{}: [{:02x}-{:012x} PIOB {}]: {:#04x}",
+                                            kinds_cloned
+                                                .get(&sb.pio_b.as_ref().unwrap().id_kind)
+                                                .unwrap(),
+                                            sb.ow_family,
+                                            sb.ow_address,
+                                            sb.pio_b.as_ref().unwrap().name,
+                                            new_value
+                                        );
+                                        //todo: trigger change
+                                    }
+                                }
+                                _ => {}
+                            }
+                            //processed -> save new value as the previous one:
+                            sb.last_value = Some(new_value);
+                        }
+                        None => (),
+                    }
                     thread::sleep(Duration::from_micros(500));
                 }
             }
