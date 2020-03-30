@@ -38,7 +38,7 @@ impl SensorBoard {
             );
             let data_path = Path::new(&path);
             info!(
-                "{:012x}: opening file: {}",
+                "{:012x}: opening sensor file: {}",
                 self.ow_address,
                 data_path.display()
             );
@@ -97,7 +97,7 @@ impl RelayBoard {
         );
         let data_path = Path::new(&path);
         info!(
-            "{:012x}: opening file: {}",
+            "{:012x}: opening relay file: {}",
             self.ow_address,
             data_path.display()
         );
