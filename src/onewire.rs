@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 pub const FAMILY_CODE_DS2413: u8 = 0x3a;
 pub const FAMILY_CODE_DS2408: u8 = 0x29;
 
+static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
+
 pub struct Sensor {
     pub id_sensor: i32,
     pub id_kind: i32,
@@ -32,8 +34,8 @@ pub struct SensorBoard {
 impl SensorBoard {
     fn open(&mut self) {
         let path = format!(
-            "/sys/bus/w1/devices/{:02x}-{:012x}/state",
-            self.ow_family, self.ow_address
+            "{}/{:02x}-{:012x}/state",
+            W1_ROOT_PATH, self.ow_family, self.ow_address
         );
         let data_path = Path::new(&path);
         info!(
@@ -98,8 +100,8 @@ pub struct RelayBoard {
 impl RelayBoard {
     fn open(&mut self) {
         let path = format!(
-            "/sys/bus/w1/devices/{:02x}-{:012x}/output",
-            self.ow_family, self.ow_address
+            "{}/{:02x}-{:012x}/output",
+            W1_ROOT_PATH, self.ow_family, self.ow_address
         );
         let data_path = Path::new(&path);
         info!(
