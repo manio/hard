@@ -309,33 +309,66 @@ impl OneWire {
                         Some(new_value) => {
                             match sb.last_value {
                                 Some(last_value) => {
-                                    //checking for change on bit 0 (PIOA)
-                                    if sb.pio_a.is_some() && (new_value & 0x01 != last_value & 0x01)
-                                    {
-                                        info!(
-                                            "{}: [{} PIOA {}]: {:#04x}",
-                                            kinds_cloned
-                                                .get(&sb.pio_a.as_ref().unwrap().id_kind)
-                                                .unwrap(),
-                                            get_w1_device_name(sb.ow_family, sb.ow_address),
-                                            sb.pio_a.as_ref().unwrap().name,
-                                            new_value
-                                        );
-                                        //todo: trigger change
-                                    }
-                                    //checking for change on bit 3 (PIOB)
-                                    if sb.pio_b.is_some() && (new_value & 0x04 != last_value & 0x04)
-                                    {
-                                        info!(
-                                            "{}: [{} PIOB {}]: {:#04x}",
-                                            kinds_cloned
-                                                .get(&sb.pio_b.as_ref().unwrap().id_kind)
-                                                .unwrap(),
-                                            get_w1_device_name(sb.ow_family, sb.ow_address),
-                                            sb.pio_b.as_ref().unwrap().name,
-                                            new_value
-                                        );
-                                        //todo: trigger change
+                                    let bits = vec![0, 2];
+                                    let names = &["PIOA", "PIOB"];
+
+                                    for bit in bits {
+                                        //check for bit change
+                                        if new_value & (1 << bit) != last_value & (1 << bit) {
+                                            let mut pio_name: &str = &"".to_string();
+                                            let mut sensor: &Option<Sensor> = &None;
+                                            if bit == 0 {
+                                                sensor = &sb.pio_a;
+                                                pio_name = names[0];
+                                            } else if bit == 2 {
+                                                sensor = &sb.pio_b;
+                                                pio_name = names[1];
+                                            }
+
+                                            //check if we have attached sensor
+                                            match sensor {
+                                                Some(sensor) => {
+                                                    let kind_code =
+                                                        kinds_cloned.get(&sensor.id_kind).unwrap();
+                                                    let on: bool = new_value & (1 << bit) != 0;
+                                                    info!(
+                                                        "{}: [{} {} {}]: {:#04x} on: {}",
+                                                        kind_code,
+                                                        get_w1_device_name(
+                                                            sb.ow_family,
+                                                            sb.ow_address
+                                                        ),
+                                                        pio_name,
+                                                        sensor.name,
+                                                        new_value,
+                                                        on
+                                                    );
+
+                                                    //trigger actions
+                                                    let associated_relays =
+                                                        &sensor.associated_relays;
+                                                    if !associated_relays.is_empty() {
+                                                        for rb in &mut relay_dev.relay_boards {
+                                                            for i in 0..7 {
+                                                                match &mut rb.relay[i] {
+                                                                    Some(relay) => {
+                                                                        if associated_relays
+                                                                            .contains(
+                                                                                &relay.id_relay,
+                                                                            )
+                                                                        {
+                                                                            //todo
+                                                                        }
+                                                                    }
+                                                                    _ => {}
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
                                     }
                                 }
                                 _ => {}
