@@ -35,7 +35,7 @@ pub enum CommandCode {
 }
 pub struct DbTask {
     pub command: CommandCode,
-    pub value: Option<u32>,
+    pub value: Option<i32>,
 }
 
 impl Database {

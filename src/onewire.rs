@@ -328,6 +328,14 @@ impl OneWire {
                                             //check if we have attached sensor
                                             match sensor {
                                                 Some(sensor) => {
+                                                    //db update task for sensor
+                                                    let task = DbTask {
+                                                        command:
+                                                            CommandCode::IncrementSensorCounter,
+                                                        value: Some(sensor.id_sensor),
+                                                    };
+                                                    self.transmitter.send(task).unwrap();
+
                                                     let kind_code =
                                                         kinds_cloned.get(&sensor.id_kind).unwrap();
                                                     let on: bool = new_value & (1 << bit) != 0;
