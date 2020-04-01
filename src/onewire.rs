@@ -99,6 +99,7 @@ pub struct Relay {
     pub last_toggled: Option<Instant>,
     pub stop_at: Option<Instant>,
     pub override_to: Option<Instant>,
+    pub last_pir_trigger: Option<Instant>,
 }
 pub struct RelayBoard {
     pub relay: [Option<Relay>; 8],
@@ -263,6 +264,7 @@ impl RelayDevices {
             last_toggled: None,
             stop_at: None,
             override_to: None,
+            last_pir_trigger: None,
         };
         relay_board.relay[bit as usize] = Some(relay);
     }
