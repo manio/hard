@@ -95,6 +95,7 @@ impl SensorBoard {
 pub struct Relay {
     pub id_relay: i32,
     pub name: String,
+    pub pir_exclude: bool,
     pub last_toggled: Option<Instant>,
     pub stop_at: Option<Instant>,
     pub override_to: Option<Instant>,
@@ -222,6 +223,7 @@ impl RelayDevices {
         family_code: Option<i16>,
         address: u64,
         bit: u8,
+        pir_exclude: bool,
     ) {
         //find or create a relay board
         let relay_board = match self
@@ -257,6 +259,7 @@ impl RelayDevices {
         let relay = Relay {
             id_relay,
             name,
+            pir_exclude,
             last_toggled: None,
             stop_at: None,
             override_to: None,

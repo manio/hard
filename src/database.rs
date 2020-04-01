@@ -107,11 +107,19 @@ impl Database {
                     let family_code: Option<i16> = row.get("family_code");
                     let address: i32 = row.get("address");
                     let bit: i16 = row.get("bit");
+                    let pir_exclude: bool = row.get("pir_exclude");
                     debug!(
-                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={}",
-                        id_relay, name, family_code, address, bit
+                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={} pir_exclude={}",
+                        id_relay, name, family_code, address, bit, pir_exclude
                     );
-                    relay_dev.add_relay(id_relay, name, family_code, address as u64, bit as u8);
+                    relay_dev.add_relay(
+                        id_relay,
+                        name,
+                        family_code,
+                        address as u64,
+                        bit as u8,
+                        pir_exclude,
+                    );
                 }
 
                 info!("{}: Loading data from table 'yeelight'...", self.name);
