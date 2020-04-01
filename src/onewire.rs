@@ -13,6 +13,12 @@ use std::time::{Duration, Instant};
 pub const FAMILY_CODE_DS2413: u8 = 0x3a;
 pub const FAMILY_CODE_DS2408: u8 = 0x29;
 
+pub const DS2408_INITIAL_STATE: u8 = 0xff;
+
+//default hold-on timings for relays
+pub const DEFAULT_PIR_HOLD_SECS: f32 = 120.0; //2min for PIR sensors
+pub const DEFAULT_SWITCH_HOLD_SECS: f32 = 3600.0; //1hour for wall-switches
+
 static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
 
 fn get_w1_device_name(family_code: u8, address: u64) -> String {
@@ -96,10 +102,11 @@ pub struct Relay {
     pub id_relay: i32,
     pub name: String,
     pub pir_exclude: bool,
+    pub pir_hold_secs: f32,
+    pub switch_hold_secs: f32,
+    pub override_mode: bool,
     pub last_toggled: Option<Instant>,
-    pub stop_at: Option<Instant>,
-    pub override_to: Option<Instant>,
-    pub last_pir_trigger: Option<Instant>,
+    pub stop_after: Option<Duration>,
 }
 pub struct RelayBoard {
     pub relay: [Option<Relay>; 8],
@@ -144,9 +151,12 @@ pub struct Yeelight {
     pub id_yeelight: i32,
     pub name: String,
     pub ip_address: String,
+    pub pir_exclude: bool,
+    pub pir_hold_secs: f32,
+    pub switch_hold_secs: f32,
+    pub override_mode: bool,
     pub last_toggled: Option<Instant>,
-    pub stop_at: Option<Instant>,
-    pub override_to: Option<Instant>,
+    pub stop_after: Option<Duration>,
 }
 
 pub struct SensorDevices {
@@ -225,6 +235,8 @@ impl RelayDevices {
         address: u64,
         bit: u8,
         pir_exclude: bool,
+        pir_hold_secs: Option<f32>,
+        switch_hold_secs: Option<f32>,
     ) {
         //find or create a relay board
         let relay_board = match self
@@ -248,7 +260,7 @@ impl RelayDevices {
 
                 //we probably can read the current state of relays but due to safety reasons
                 //assume that all relays are turned off by default
-                relay_board.last_value = Some(0xff);
+                relay_board.last_value = Some(DS2408_INITIAL_STATE);
 
                 relay_board.open();
                 self.relay_boards.push(relay_board);
@@ -261,23 +273,35 @@ impl RelayDevices {
             id_relay,
             name,
             pir_exclude,
+            pir_hold_secs: pir_hold_secs.unwrap_or(DEFAULT_PIR_HOLD_SECS),
+            switch_hold_secs: switch_hold_secs.unwrap_or(DEFAULT_SWITCH_HOLD_SECS),
+            override_mode: false,
             last_toggled: None,
-            stop_at: None,
-            override_to: None,
-            last_pir_trigger: None,
+            stop_after: None,
         };
         relay_board.relay[bit as usize] = Some(relay);
     }
 
-    pub fn add_yeelight(&mut self, id_yeelight: i32, name: String, ip_address: String) {
+    pub fn add_yeelight(
+        &mut self,
+        id_yeelight: i32,
+        name: String,
+        ip_address: String,
+        pir_exclude: bool,
+        pir_hold_secs: Option<f32>,
+        switch_hold_secs: Option<f32>,
+    ) {
         //create and add a yeelight
         let light = Yeelight {
             id_yeelight,
             name,
             ip_address,
+            pir_exclude,
+            pir_hold_secs: pir_hold_secs.unwrap_or(DEFAULT_PIR_HOLD_SECS),
+            switch_hold_secs: switch_hold_secs.unwrap_or(DEFAULT_SWITCH_HOLD_SECS),
+            override_mode: false,
             last_toggled: None,
-            stop_at: None,
-            override_to: None,
+            stop_after: None,
         };
         self.yeelight.push(light);
     }

@@ -108,9 +108,11 @@ impl Database {
                     let address: i32 = row.get("address");
                     let bit: i16 = row.get("bit");
                     let pir_exclude: bool = row.get("pir_exclude");
+                    let pir_hold_secs = row.get("pir_hold_secs");
+                    let switch_hold_secs = row.get("switch_hold_secs");
                     debug!(
-                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={} pir_exclude={}",
-                        id_relay, name, family_code, address, bit, pir_exclude
+                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?}",
+                        id_relay, name, family_code, address, bit, pir_exclude, pir_hold_secs, switch_hold_secs
                     );
                     relay_dev.add_relay(
                         id_relay,
@@ -119,6 +121,8 @@ impl Database {
                         address as u64,
                         bit as u8,
                         pir_exclude,
+                        pir_hold_secs,
+                        switch_hold_secs,
                     );
                 }
 
@@ -126,7 +130,7 @@ impl Database {
                 relay_dev.yeelight.clear();
                 for row in client
                     .query(
-                        "select id_yeelight, name, ip_address::text ip_address from yeelight",
+                        "select id_yeelight, name, ip_address::text ip_address, pir_exclude, pir_hold_secs, switch_hold_secs from yeelight",
                         &[],
                     )
                     .unwrap()
@@ -134,11 +138,21 @@ impl Database {
                     let id_yeelight: i32 = row.get("id_yeelight");
                     let name: String = row.get("name");
                     let ip_address: String = row.get("ip_address");
+                    let pir_exclude: bool = row.get("pir_exclude");
+                    let pir_hold_secs = row.get("pir_hold_secs");
+                    let switch_hold_secs = row.get("switch_hold_secs");
                     debug!(
-                        "Got yeelight: id_yeelight={} name={:?} ip_address={}",
-                        id_yeelight, name, ip_address
+                        "Got yeelight: id_yeelight={} name={:?} ip_address={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?}",
+                        id_yeelight, name, ip_address, pir_exclude, pir_hold_secs, switch_hold_secs
                     );
-                    relay_dev.add_yeelight(id_yeelight, name, ip_address);
+                    relay_dev.add_yeelight(
+                        id_yeelight,
+                        name,
+                        ip_address,
+                        pir_exclude,
+                        pir_hold_secs,
+                        switch_hold_secs,
+                    );
                 }
             }
             None => {
