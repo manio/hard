@@ -370,7 +370,32 @@ impl OneWire {
                                                                                 &relay.id_relay,
                                                                             )
                                                                         {
-                                                                            //todo
+                                                                            match kind_code.as_ref()
+                                                                            {
+                                                                                "PIR_Trigger" => {
+                                                                                    relay.last_pir_trigger = Some(Instant::now());
+                                                                                    if !relay
+                                                                                        .pir_exclude
+                                                                                    {
+                                                                                        //todo: set/clear bit on new_value
+                                                                                    }
+                                                                                }
+                                                                                "Switch" => {
+                                                                                    //todo
+                                                                                }
+                                                                                _ => {
+                                                                                    error!(
+                                                                                        "{}: {}/{}: unhandled kind: {:?}",
+                                                                                        get_w1_device_name(
+                                                                                            sb.ow_family,
+                                                                                            sb.ow_address
+                                                                                        ),
+                                                                                        pio_name,
+                                                                                        sensor.name,
+                                                                                        kind_code,
+                                                                                    );
+                                                                                }
+                                                                            }
                                                                         }
                                                                     }
                                                                     _ => {}
