@@ -2,6 +2,7 @@ use crate::database::{CommandCode, DbTask};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::ops::Add;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -15,9 +16,10 @@ pub const FAMILY_CODE_DS2408: u8 = 0x29;
 
 pub const DS2408_INITIAL_STATE: u8 = 0xff;
 
-//default hold-on timings for relays
+//timing constants
 pub const DEFAULT_PIR_HOLD_SECS: f32 = 120.0; //2min for PIR sensors
 pub const DEFAULT_SWITCH_HOLD_SECS: f32 = 3600.0; //1hour for wall-switches
+pub const DEFAULT_PIR_PROLONG_SECS: f32 = 900.0; //15min prolonging in override_mode
 
 static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
 
@@ -394,18 +396,79 @@ impl OneWire {
                                                                                 &relay.id_relay,
                                                                             )
                                                                         {
+                                                                            //we will be computing new output byte for a relay board
+                                                                            //so first of all get the base/previous value
+                                                                            let mut new_state: u8 = match rb.new_value {
+                                                                                Some(val) => val,
+                                                                                None => rb.last_value.unwrap_or(DS2408_INITIAL_STATE)
+                                                                            };
+
                                                                             match kind_code.as_ref()
                                                                             {
                                                                                 "PIR_Trigger" => {
-                                                                                    relay.last_pir_trigger = Some(Instant::now());
                                                                                     if !relay
                                                                                         .pir_exclude
+                                                                                        && on
                                                                                     {
-                                                                                        //todo: set/clear bit on new_value
+                                                                                        //checking if bit is set (relay is off)
+                                                                                        if !relay.override_mode && new_state & (1 << i as u8) != 0 {
+                                                                                            new_state = new_state & !(1 << i as u8);
+                                                                                            info!(
+                                                                                                "{}: Turning ON: {}: bit={} new state: {:#04x}",
+                                                                                                get_w1_device_name(
+                                                                                                    sb.ow_family,
+                                                                                                    sb.ow_address
+                                                                                                ),
+                                                                                                relay.name,
+                                                                                                i,
+                                                                                                new_state,
+                                                                                            );
+                                                                                            relay.stop_after = Some(Duration::from_secs_f32(relay.pir_hold_secs));
+                                                                                            rb.new_value = Some(new_state);
+                                                                                        } else {
+                                                                                            info!(
+                                                                                                "{}: Prolonging: {}: bit={}",
+                                                                                                get_w1_device_name(
+                                                                                                    sb.ow_family,
+                                                                                                    sb.ow_address
+                                                                                                ),
+                                                                                                relay.name,
+                                                                                                i,
+                                                                                            );
+
+                                                                                            let new_stop_after = relay.stop_after.unwrap_or(Default::default());
+                                                                                            if relay.override_mode {
+                                                                                                match relay.last_toggled {
+                                                                                                    Some(toggled) => {
+                                                                                                        if toggled.elapsed() > Duration::from_secs_f32(relay.switch_hold_secs - DEFAULT_PIR_PROLONG_SECS) {
+                                                                                                            relay.stop_after = Some(new_stop_after.add(Duration::from_secs_f32(DEFAULT_PIR_PROLONG_SECS)));
+                                                                                                        }
+                                                                                                    }
+                                                                                                    _ => {}
+                                                                                                }
+                                                                                            }
+                                                                                            else {
+                                                                                                relay.stop_after = Some(new_stop_after.add(Duration::from_secs_f32(relay.pir_hold_secs)));
+                                                                                            }
+                                                                                        }
                                                                                     }
                                                                                 }
                                                                                 "Switch" => {
-                                                                                    //todo
+                                                                                    //switching is toggling current state to the opposite:
+                                                                                    new_state = new_state ^ (1 << i as u8);
+                                                                                    info!(
+                                                                                        "{}: Switch toggle: {}: bit={} new state: {:#04x}",
+                                                                                        get_w1_device_name(
+                                                                                            sb.ow_family,
+                                                                                            sb.ow_address
+                                                                                        ),
+                                                                                        relay.name,
+                                                                                        i,
+                                                                                        new_state,
+                                                                                    );
+                                                                                    relay.override_mode = true;
+                                                                                    relay.stop_after = Some(Duration::from_secs_f32(relay.switch_hold_secs));
+                                                                                    rb.new_value = Some(new_state);
                                                                                 }
                                                                                 _ => {
                                                                                     error!(
@@ -430,6 +493,34 @@ impl OneWire {
                                                 }
                                                 _ => {}
                                             }
+                                        }
+                                    }
+
+                                    //iteration over all boards that has changed state and needs a save_state()
+                                    for rb in &mut relay_dev.relay_boards {
+                                        match rb.new_value {
+                                            Some(new_value) => {
+                                                let old_value =
+                                                    rb.last_value.unwrap_or(DS2408_INITIAL_STATE);
+                                                if new_value != old_value {
+                                                    //checking all changed bits (relays) and set last_toggled Instant
+                                                    for i in 0..7 {
+                                                        if new_value & (1 << i as u8)
+                                                            != old_value & (1 << i as u8)
+                                                        {
+                                                            match &mut rb.relay[i] {
+                                                                Some(relay) => {
+                                                                    relay.last_toggled =
+                                                                        Some(Instant::now());
+                                                                }
+                                                                _ => {}
+                                                            }
+                                                        }
+                                                    }
+                                                    rb.save_state();
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
                                 }
