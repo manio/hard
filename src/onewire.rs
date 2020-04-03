@@ -20,6 +20,7 @@ pub const DS2408_INITIAL_STATE: u8 = 0xff;
 pub const DEFAULT_PIR_HOLD_SECS: f32 = 120.0; //2min for PIR sensors
 pub const DEFAULT_SWITCH_HOLD_SECS: f32 = 3600.0; //1hour for wall-switches
 pub const DEFAULT_PIR_PROLONG_SECS: f32 = 900.0; //15min prolonging in override_mode
+pub const MIN_TOGGLE_DELAY_SECS: f32 = 1.0; //1sec flip-flop protection: minimum delay between toggles
 
 static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
 
@@ -396,6 +397,24 @@ impl OneWire {
                                                                                 &relay.id_relay,
                                                                             )
                                                                         {
+                                                                            //flip-flop protection for too fast state changes
+                                                                            match relay.last_toggled {
+                                                                                Some(toggled) => {
+                                                                                    if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
+                                                                                        warn!(
+                                                                                            "{}: {}: flip-flop protection: request ignored!",
+                                                                                            get_w1_device_name(
+                                                                                                sb.ow_family,
+                                                                                                sb.ow_address
+                                                                                            ),
+                                                                                            relay.name,
+                                                                                        );
+                                                                                        continue;
+                                                                                    }
+                                                                                }
+                                                                                _ => {}
+                                                                            }
+
                                                                             //we will be computing new output byte for a relay board
                                                                             //so first of all get the base/previous value
                                                                             let mut new_state: u8 = match rb.new_value {
