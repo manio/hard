@@ -795,21 +795,6 @@ impl OneWire {
                     }
                 }
             }
-            let task = DbTask {
-                command: CommandCode::ReloadDevices,
-                value: None,
-            };
-            self.transmitter.send(task).unwrap();
-            let task = DbTask {
-                command: CommandCode::IncrementSensorCounter,
-                value: Some(2),
-            };
-            self.transmitter.send(task).unwrap();
-            let task = DbTask {
-                command: CommandCode::IncrementRelayCounter,
-                value: Some(1),
-            };
-            self.transmitter.send(task).unwrap();
         }
         info!("{}: Stopping thread", self.name);
     }
