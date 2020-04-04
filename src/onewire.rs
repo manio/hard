@@ -163,6 +163,14 @@ pub struct Yeelight {
     pub powered_on: bool,
 }
 
+impl Yeelight {
+    fn turn_on_off(&mut self, turn_on: bool) {
+        //todo: send a request to a Yeelight
+        self.powered_on = turn_on;
+        self.last_toggled = Some(Instant::now());
+    }
+}
+
 pub struct SensorDevices {
     pub kinds: HashMap<i32, String>,
     pub sensor_boards: Vec<SensorBoard>,
@@ -402,7 +410,7 @@ impl OneWire {
                                                         on
                                                     );
 
-                                                    //trigger actions
+                                                    //trigger actions for relays
                                                     let associated_relays =
                                                         &sensor.associated_relays;
                                                     if !associated_relays.is_empty() {
@@ -537,6 +545,105 @@ impl OneWire {
                                                             }
                                                         }
                                                     }
+
+                                                    //trigger actions for yeelights
+                                                    let associated_yeelights =
+                                                        &sensor.associated_yeelights;
+                                                    if !associated_yeelights.is_empty() {
+                                                        for yeelight in &mut relay_dev.yeelight {
+                                                            if associated_yeelights
+                                                                .contains(&yeelight.id_yeelight)
+                                                            {
+                                                                //flip-flop protection for too fast state changes
+                                                                let mut flipflop_block = false;
+                                                                match yeelight.last_toggled {
+                                                                    Some(toggled) => {
+                                                                        if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
+                                                                            flipflop_block = true;
+                                                                        }
+                                                                    }
+                                                                    _ => {}
+                                                                }
+
+                                                                match kind_code.as_ref() {
+                                                                    "PIR_Trigger" => {
+                                                                        if !yeelight.pir_exclude
+                                                                            && on
+                                                                        {
+                                                                            //checking if yeelight is off
+                                                                            if !yeelight
+                                                                                .override_mode
+                                                                                && !yeelight
+                                                                                    .powered_on
+                                                                            {
+                                                                                if flipflop_block {
+                                                                                    warn!(
+                                                                                        "Yeelight: {}: flip-flop protection: PIR turn-on request ignored",
+                                                                                        yeelight.name,
+                                                                                    );
+                                                                                } else {
+                                                                                    info!(
+                                                                                        "Yeelight: Turning ON: {}",
+                                                                                        yeelight.name,
+                                                                                    );
+                                                                                    yeelight.stop_after = Some(Duration::from_secs_f32(yeelight.pir_hold_secs));
+                                                                                    yeelight.turn_on_off(true);
+                                                                                    self.increment_yeelight_counter(yeelight.id_yeelight);
+                                                                                }
+                                                                            } else {
+                                                                                info!(
+                                                                                    "Yeelight: Prolonging: {}",
+                                                                                    yeelight.name,
+                                                                                );
+
+                                                                                let toggled_elapsed = yeelight.last_toggled.unwrap_or(Instant::now()).elapsed();
+                                                                                if yeelight
+                                                                                    .override_mode
+                                                                                {
+                                                                                    if toggled_elapsed > Duration::from_secs_f32(yeelight.switch_hold_secs - DEFAULT_PIR_PROLONG_SECS) {
+                                                                                        yeelight.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(DEFAULT_PIR_PROLONG_SECS)));
+                                                                                    }
+                                                                                } else {
+                                                                                    yeelight.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(yeelight.pir_hold_secs)));
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    "Switch" => {
+                                                                        if flipflop_block {
+                                                                            warn!(
+                                                                                "Yeelight: {}: flip-flop protection: Switch toggle request ignored",
+                                                                                yeelight.name,
+                                                                            );
+                                                                        } else {
+                                                                            //switching is toggling current state to the opposite:
+                                                                            info!(
+                                                                                "Yeelight: Switch toggle: {}",
+                                                                                yeelight.name,
+                                                                            );
+                                                                            yeelight
+                                                                                .override_mode =
+                                                                                true;
+                                                                            yeelight.stop_after = Some(Duration::from_secs_f32(yeelight.switch_hold_secs));
+                                                                            yeelight.turn_on_off(
+                                                                                !yeelight
+                                                                                    .powered_on,
+                                                                            );
+                                                                            self.increment_yeelight_counter(yeelight.id_yeelight);
+                                                                        }
+                                                                    }
+                                                                    _ => {
+                                                                        error!(
+                                                                            "Yeelight: {}/{}: unhandled kind: {:?}",
+                                                                            pio_name,
+                                                                            sensor.name,
+                                                                            kind_code,
+                                                                        );
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                                 _ => {}
                                             }
@@ -654,6 +761,38 @@ impl OneWire {
 
                     //save output state when needed
                     rb.save_state();
+                }
+
+                //checking for auto turn-off of necessary yeelights
+                for yeelight in &mut relay_dev.yeelight {
+                    match yeelight.last_toggled {
+                        Some(toggled) => match yeelight.stop_after {
+                            Some(stop_after) => {
+                                if toggled.elapsed()
+                                    > Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
+                                    && toggled.elapsed() > stop_after
+                                {
+                                    if yeelight.powered_on {
+                                        info!("Yeelight: Auto turn-off: {}", yeelight.name,);
+                                        yeelight.turn_on_off(false);
+                                        self.increment_yeelight_counter(yeelight.id_yeelight);
+                                    } else {
+                                        if yeelight.override_mode {
+                                            info!(
+                                                "Yeelight: End of override mode: {}",
+                                                yeelight.name,
+                                            );
+                                        }
+                                        yeelight.last_toggled = None;
+                                    }
+                                    yeelight.stop_after = None;
+                                    yeelight.override_mode = false;
+                                }
+                            }
+                            _ => {}
+                        },
+                        _ => {}
+                    }
                 }
             }
             let task = DbTask {
