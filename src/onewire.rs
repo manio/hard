@@ -397,7 +397,7 @@ impl OneWire {
                                                         &sensor.associated_relays;
                                                     if !associated_relays.is_empty() {
                                                         for rb in &mut relay_dev.relay_boards {
-                                                            for i in 0..7 {
+                                                            for i in 0..=7 {
                                                                 match &mut rb.relay[i] {
                                                                     Some(relay) => {
                                                                         if associated_relays
@@ -541,7 +541,7 @@ impl OneWire {
                                                     rb.last_value.unwrap_or(DS2408_INITIAL_STATE);
                                                 if new_value != old_value {
                                                     //checking all changed bits (relays) and set last_toggled Instant
-                                                    for i in 0..7 {
+                                                    for i in 0..=7 {
                                                         if new_value & (1 << i as u8)
                                                             != old_value & (1 << i as u8)
                                                         {
@@ -584,7 +584,7 @@ impl OneWire {
                     };
 
                     //iteration on all relays and check elapsed time
-                    for i in 0..7 {
+                    for i in 0..=7 {
                         match &mut rb.relay[i] {
                             Some(relay) => {
                                 match relay.last_toggled {
