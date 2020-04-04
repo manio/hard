@@ -552,6 +552,75 @@ impl OneWire {
                     }
                     thread::sleep(Duration::from_micros(500));
                 }
+
+                //checking for auto turn-off of necessary relays
+                for rb in &mut relay_dev.relay_boards {
+                    //we will be eventually computing new output byte for a relay board
+                    //so first of all get the base/previous value
+                    let mut new_state: u8 = match rb.new_value {
+                        Some(val) => val,
+                        None => rb.last_value.unwrap_or(DS2408_INITIAL_STATE),
+                    };
+
+                    //iteration on all relays and check elapsed time
+                    for i in 0..7 {
+                        match &mut rb.relay[i] {
+                            Some(relay) => {
+                                match relay.last_toggled {
+                                    Some(toggled) => {
+                                        match relay.stop_after {
+                                            Some(stop_after) => {
+                                                if toggled.elapsed()
+                                                    > Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
+                                                    && toggled.elapsed() > stop_after
+                                                {
+                                                    let on: bool = new_state & (1 << i as u8) == 0;
+                                                    if on {
+                                                        //set a bit -> turn off relay
+                                                        new_state = new_state | (1 << i as u8);
+                                                        info!(
+                                                            "{}: Auto turn-off: {}: bit={} new state: {:#04x}",
+                                                            get_w1_device_name(
+                                                                rb.ow_family,
+                                                                rb.ow_address
+                                                            ),
+                                                            relay.name,
+                                                            i,
+                                                            new_state,
+                                                        );
+                                                        relay.last_toggled = Some(Instant::now());
+                                                        rb.new_value = Some(new_state);
+                                                    } else {
+                                                        if relay.override_mode {
+                                                            info!(
+                                                                "{}: End of override mode: {}: bit={}",
+                                                                get_w1_device_name(
+                                                                    rb.ow_family,
+                                                                    rb.ow_address
+                                                                ),
+                                                                relay.name,
+                                                                i,
+                                                            );
+                                                        }
+                                                        relay.last_toggled = None;
+                                                    }
+                                                    relay.stop_after = None;
+                                                    relay.override_mode = false;
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    //save output state when needed
+                    rb.save_state();
+                }
             }
             let task = DbTask {
                 command: CommandCode::ReloadDevices,
