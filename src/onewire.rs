@@ -160,6 +160,7 @@ pub struct Yeelight {
     pub override_mode: bool,
     pub last_toggled: Option<Instant>,
     pub stop_after: Option<Duration>,
+    pub powered_on: bool,
 }
 
 pub struct SensorDevices {
@@ -305,6 +306,7 @@ impl RelayDevices {
             override_mode: false,
             last_toggled: None,
             stop_after: None,
+            powered_on: false,
         };
         self.yeelight.push(light);
     }
