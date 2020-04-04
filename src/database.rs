@@ -270,8 +270,9 @@ impl Database {
                     reload_devices = false;
                 }
                 if flush_data.elapsed().as_secs() > 10 {
+                    //flush all data from hashmaps to database
                     debug!("flushing local data to db...");
-                    //todo
+                    self.flush_counter_data();
                     flush_data = Instant::now();
                 }
             }
@@ -279,5 +280,46 @@ impl Database {
             thread::sleep(Duration::from_millis(50));
         }
         info!("{}: Stopping thread", self.name);
+    }
+
+    fn increment_cycles(&mut self, table_name: String, id_sensor: i32, counter: u32) -> bool {
+        match self.conn.borrow_mut() {
+            Some(client) => {
+                let query = format!(
+                    "update {} set cycles=cycles+$1 where id_{}=$2",
+                    table_name, table_name
+                );
+                let result = client.execute(query.as_str(), &[&(counter as i64), &id_sensor]);
+                match result {
+                    Ok(_) => {
+                        return true;
+                    }
+                    Err(e) => {
+                        error!("{}: SQL error, query={:?}, error: {}", self.name, query, e);
+                        self.conn = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+        false
+    }
+
+    fn flush_counter_data(&mut self) {
+        let mut flush_map = self.sensor_counters.clone();
+        flush_map
+            .retain(|&id, &mut counter| !self.increment_cycles("sensor".to_string(), id, counter));
+        self.sensor_counters = flush_map;
+
+        flush_map = self.relay_counters.clone();
+        flush_map
+            .retain(|&id, &mut counter| !self.increment_cycles("relay".to_string(), id, counter));
+        self.relay_counters = flush_map;
+
+        flush_map = self.yeelight_counters.clone();
+        flush_map.retain(|&id, &mut counter| {
+            !self.increment_cycles("yeelight".to_string(), id, counter)
+        });
+        self.yeelight_counters = flush_map;
     }
 }
