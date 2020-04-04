@@ -32,6 +32,7 @@ pub enum CommandCode {
     ReloadDevices,
     IncrementSensorCounter,
     IncrementRelayCounter,
+    IncrementYeelightCounter,
 }
 pub struct DbTask {
     pub command: CommandCode,
@@ -170,6 +171,7 @@ impl Database {
         let mut flush_data = Instant::now();
         let mut sensor_counters = HashMap::new();
         let mut relay_counters = HashMap::new();
+        let mut yeelight_counters = HashMap::new();
 
         let mut builder =
             SslConnector::builder(SslMethod::tls()).expect("SslConnector::builder error");
@@ -204,6 +206,13 @@ impl Database {
                         CommandCode::IncrementRelayCounter => match t.value {
                             Some(id) => {
                                 let counter = relay_counters.entry(id).or_insert(0 as u32);
+                                *counter += 1;
+                            }
+                            _ => {}
+                        },
+                        CommandCode::IncrementYeelightCounter => match t.value {
+                            Some(id) => {
+                                let counter = yeelight_counters.entry(id).or_insert(0 as u32);
                                 *counter += 1;
                             }
                             _ => {}

@@ -328,6 +328,14 @@ impl OneWire {
         self.transmitter.send(task).unwrap();
     }
 
+    fn increment_yeelight_counter(&self, id_yeelight: i32) {
+        let task = DbTask {
+            command: CommandCode::IncrementYeelightCounter,
+            value: Some(id_yeelight),
+        };
+        self.transmitter.send(task).unwrap();
+    }
+
     pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
 
