@@ -106,6 +106,9 @@ fn main() {
         conn: None,
         sensor_devices: onewire_sensor_devices.clone(),
         relay_devices: onewire_relay_devices.clone(),
+        sensor_counters: Default::default(),
+        relay_counters: Default::default(),
+        yeelight_counters: Default::default(),
     };
     let worker_cancel_flag = cancel_flag.clone();
     let thread_builder = thread::Builder::new().name("db".into()); //thread name

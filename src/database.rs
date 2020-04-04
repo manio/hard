@@ -25,6 +25,9 @@ pub struct Database {
     pub conn: Option<postgres::Client>,
     pub sensor_devices: Arc<RwLock<onewire::SensorDevices>>,
     pub relay_devices: Arc<RwLock<onewire::RelayDevices>>,
+    pub sensor_counters: HashMap<i32, u32>,
+    pub relay_counters: HashMap<i32, u32>,
+    pub yeelight_counters: HashMap<i32, u32>,
 }
 
 #[derive(Debug)]
@@ -169,9 +172,6 @@ impl Database {
         info!("{}: Starting thread", self.name);
         let mut reload_devices = true;
         let mut flush_data = Instant::now();
-        let mut sensor_counters = HashMap::new();
-        let mut relay_counters = HashMap::new();
-        let mut yeelight_counters = HashMap::new();
 
         let mut builder =
             SslConnector::builder(SslMethod::tls()).expect("SslConnector::builder error");
@@ -198,21 +198,21 @@ impl Database {
                         }
                         CommandCode::IncrementSensorCounter => match t.value {
                             Some(id) => {
-                                let counter = sensor_counters.entry(id).or_insert(0 as u32);
+                                let counter = self.sensor_counters.entry(id).or_insert(0 as u32);
                                 *counter += 1;
                             }
                             _ => {}
                         },
                         CommandCode::IncrementRelayCounter => match t.value {
                             Some(id) => {
-                                let counter = relay_counters.entry(id).or_insert(0 as u32);
+                                let counter = self.relay_counters.entry(id).or_insert(0 as u32);
                                 *counter += 1;
                             }
                             _ => {}
                         },
                         CommandCode::IncrementYeelightCounter => match t.value {
                             Some(id) => {
-                                let counter = yeelight_counters.entry(id).or_insert(0 as u32);
+                                let counter = self.yeelight_counters.entry(id).or_insert(0 as u32);
                                 *counter += 1;
                             }
                             _ => {}
