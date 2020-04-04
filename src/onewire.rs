@@ -455,19 +455,13 @@ impl OneWire {
                                                                                                 i,
                                                                                             );
 
-                                                                                            let new_stop_after = relay.stop_after.unwrap_or(Default::default());
+                                                                                            let toggled_elapsed = relay.last_toggled.unwrap_or(Instant::now()).elapsed();
                                                                                             if relay.override_mode {
-                                                                                                match relay.last_toggled {
-                                                                                                    Some(toggled) => {
-                                                                                                        if toggled.elapsed() > Duration::from_secs_f32(relay.switch_hold_secs - DEFAULT_PIR_PROLONG_SECS) {
-                                                                                                            relay.stop_after = Some(new_stop_after.add(Duration::from_secs_f32(DEFAULT_PIR_PROLONG_SECS)));
-                                                                                                        }
-                                                                                                    }
-                                                                                                    _ => {}
+                                                                                                if toggled_elapsed > Duration::from_secs_f32(relay.switch_hold_secs - DEFAULT_PIR_PROLONG_SECS) {
+                                                                                                    relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(DEFAULT_PIR_PROLONG_SECS)));
                                                                                                 }
-                                                                                            }
-                                                                                            else {
-                                                                                                relay.stop_after = Some(new_stop_after.add(Duration::from_secs_f32(relay.pir_hold_secs)));
+                                                                                            } else {
+                                                                                                relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(relay.pir_hold_secs)));
                                                                                             }
                                                                                         }
                                                                                     }
