@@ -404,8 +404,8 @@ impl OneWire {
                                                                                         warn!(
                                                                                             "{}: {}: flip-flop protection: request ignored!",
                                                                                             get_w1_device_name(
-                                                                                                sb.ow_family,
-                                                                                                sb.ow_address
+                                                                                                rb.ow_family,
+                                                                                                rb.ow_address
                                                                                             ),
                                                                                             relay.name,
                                                                                         );
@@ -435,8 +435,8 @@ impl OneWire {
                                                                                             info!(
                                                                                                 "{}: Turning ON: {}: bit={} new state: {:#04x}",
                                                                                                 get_w1_device_name(
-                                                                                                    sb.ow_family,
-                                                                                                    sb.ow_address
+                                                                                                    rb.ow_family,
+                                                                                                    rb.ow_address
                                                                                                 ),
                                                                                                 relay.name,
                                                                                                 i,
@@ -448,8 +448,8 @@ impl OneWire {
                                                                                             info!(
                                                                                                 "{}: Prolonging: {}: bit={}",
                                                                                                 get_w1_device_name(
-                                                                                                    sb.ow_family,
-                                                                                                    sb.ow_address
+                                                                                                    rb.ow_family,
+                                                                                                    rb.ow_address
                                                                                                 ),
                                                                                                 relay.name,
                                                                                                 i,
@@ -478,8 +478,8 @@ impl OneWire {
                                                                                     info!(
                                                                                         "{}: Switch toggle: {}: bit={} new state: {:#04x}",
                                                                                         get_w1_device_name(
-                                                                                            sb.ow_family,
-                                                                                            sb.ow_address
+                                                                                            rb.ow_family,
+                                                                                            rb.ow_address
                                                                                         ),
                                                                                         relay.name,
                                                                                         i,
