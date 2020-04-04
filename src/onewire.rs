@@ -318,6 +318,14 @@ pub struct OneWire {
 }
 
 impl OneWire {
+    fn increment_relay_counter(&self, id_relay: i32) {
+        let task = DbTask {
+            command: CommandCode::IncrementRelayCounter,
+            value: Some(id_relay),
+        };
+        self.transmitter.send(task).unwrap();
+    }
+
     pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
 
@@ -525,6 +533,9 @@ impl OneWire {
                                                                 Some(relay) => {
                                                                     relay.last_toggled =
                                                                         Some(Instant::now());
+                                                                    self.increment_relay_counter(
+                                                                        relay.id_relay,
+                                                                    );
                                                                 }
                                                                 _ => {}
                                                             }
@@ -584,6 +595,9 @@ impl OneWire {
                                                         );
                                                         relay.last_toggled = Some(Instant::now());
                                                         rb.new_value = Some(new_state);
+                                                        self.increment_relay_counter(
+                                                            relay.id_relay,
+                                                        );
                                                     } else {
                                                         if relay.override_mode {
                                                             info!(
