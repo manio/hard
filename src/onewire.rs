@@ -406,18 +406,12 @@ impl OneWire {
                                                                             )
                                                                         {
                                                                             //flip-flop protection for too fast state changes
+                                                                            let mut flipflop_block =
+                                                                                false;
                                                                             match relay.last_toggled {
                                                                                 Some(toggled) => {
                                                                                     if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
-                                                                                        warn!(
-                                                                                            "{}: {}: flip-flop protection: request ignored!",
-                                                                                            get_w1_device_name(
-                                                                                                rb.ow_family,
-                                                                                                rb.ow_address
-                                                                                            ),
-                                                                                            relay.name,
-                                                                                        );
-                                                                                        continue;
+                                                                                        flipflop_block = true;
                                                                                     }
                                                                                 }
                                                                                 _ => {}
@@ -439,19 +433,30 @@ impl OneWire {
                                                                                     {
                                                                                         //checking if bit is set (relay is off)
                                                                                         if !relay.override_mode && new_state & (1 << i as u8) != 0 {
-                                                                                            new_state = new_state & !(1 << i as u8);
-                                                                                            info!(
-                                                                                                "{}: Turning ON: {}: bit={} new state: {:#04x}",
-                                                                                                get_w1_device_name(
-                                                                                                    rb.ow_family,
-                                                                                                    rb.ow_address
-                                                                                                ),
-                                                                                                relay.name,
-                                                                                                i,
-                                                                                                new_state,
-                                                                                            );
-                                                                                            relay.stop_after = Some(Duration::from_secs_f32(relay.pir_hold_secs));
-                                                                                            rb.new_value = Some(new_state);
+                                                                                            if flipflop_block {
+                                                                                                warn!(
+                                                                                                    "{}: {}: flip-flop protection: PIR turn-on request ignored",
+                                                                                                    get_w1_device_name(
+                                                                                                        rb.ow_family,
+                                                                                                        rb.ow_address
+                                                                                                    ),
+                                                                                                    relay.name,
+                                                                                                );
+                                                                                            } else {
+                                                                                                new_state = new_state & !(1 << i as u8);
+                                                                                                info!(
+                                                                                                    "{}: Turning ON: {}: bit={} new state: {:#04x}",
+                                                                                                    get_w1_device_name(
+                                                                                                        rb.ow_family,
+                                                                                                        rb.ow_address
+                                                                                                    ),
+                                                                                                    relay.name,
+                                                                                                    i,
+                                                                                                    new_state,
+                                                                                                );
+                                                                                                relay.stop_after = Some(Duration::from_secs_f32(relay.pir_hold_secs));
+                                                                                                rb.new_value = Some(new_state);
+                                                                                            }
                                                                                         } else {
                                                                                             info!(
                                                                                                 "{}: Prolonging: {}: bit={}",
@@ -475,21 +480,32 @@ impl OneWire {
                                                                                     }
                                                                                 }
                                                                                 "Switch" => {
-                                                                                    //switching is toggling current state to the opposite:
-                                                                                    new_state = new_state ^ (1 << i as u8);
-                                                                                    info!(
-                                                                                        "{}: Switch toggle: {}: bit={} new state: {:#04x}",
-                                                                                        get_w1_device_name(
-                                                                                            rb.ow_family,
-                                                                                            rb.ow_address
-                                                                                        ),
-                                                                                        relay.name,
-                                                                                        i,
-                                                                                        new_state,
-                                                                                    );
-                                                                                    relay.override_mode = true;
-                                                                                    relay.stop_after = Some(Duration::from_secs_f32(relay.switch_hold_secs));
-                                                                                    rb.new_value = Some(new_state);
+                                                                                    if flipflop_block {
+                                                                                        warn!(
+                                                                                            "{}: {}: flip-flop protection: Switch toggle request ignored",
+                                                                                            get_w1_device_name(
+                                                                                                rb.ow_family,
+                                                                                                rb.ow_address
+                                                                                            ),
+                                                                                            relay.name,
+                                                                                        );
+                                                                                    } else {
+                                                                                        //switching is toggling current state to the opposite:
+                                                                                        new_state = new_state ^ (1 << i as u8);
+                                                                                        info!(
+                                                                                            "{}: Switch toggle: {}: bit={} new state: {:#04x}",
+                                                                                            get_w1_device_name(
+                                                                                                rb.ow_family,
+                                                                                                rb.ow_address
+                                                                                            ),
+                                                                                            relay.name,
+                                                                                            i,
+                                                                                            new_state,
+                                                                                        );
+                                                                                        relay.override_mode = true;
+                                                                                        relay.stop_after = Some(Duration::from_secs_f32(relay.switch_hold_secs));
+                                                                                        rb.new_value = Some(new_state);
+                                                                                    }
                                                                                 }
                                                                                 _ => {
                                                                                     error!(
