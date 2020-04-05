@@ -180,8 +180,8 @@ impl Database {
 
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
-                //todo: check if we have all SQL data flushed
                 debug!("Got terminate signal from main");
+                self.flush_counter_data();
                 break;
             }
 
