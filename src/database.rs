@@ -134,7 +134,7 @@ impl Database {
                 relay_dev.yeelight.clear();
                 for row in client
                     .query(
-                        "select id_yeelight, name, ip_address::text ip_address, pir_exclude, pir_hold_secs, switch_hold_secs from yeelight",
+                        "select id_yeelight, name, host(ip_address) ip_address, pir_exclude, pir_hold_secs, switch_hold_secs from yeelight",
                         &[],
                     )
                     .unwrap()
