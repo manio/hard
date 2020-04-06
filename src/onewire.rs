@@ -1,6 +1,6 @@
 use crate::database::{CommandCode, DbTask};
 use std::collections::HashMap;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom};
 use std::ops::Add;
 use std::path::Path;
@@ -153,7 +153,20 @@ impl RelayBoard {
             get_w1_device_name(self.ow_family, self.ow_address),
             data_path.display()
         );
-        self.file = File::open(data_path).ok();
+        let file = OpenOptions::new().write(true).open(data_path);
+        match file {
+            Ok(file) => {
+                self.file = Some(file);
+            }
+            Err(e) => {
+                error!(
+                    "{}: error opening file {:?}: {:?}",
+                    get_w1_device_name(self.ow_family, self.ow_address),
+                    data_path.display(),
+                    e,
+                );
+            }
+        }
     }
 
     fn save_state(&mut self) {
