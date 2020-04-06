@@ -1,10 +1,12 @@
 use crate::database::{CommandCode, DbTask};
+use serde::ser::SerializeSeq;
+use serde::{Serialize, Serializer};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::net::TcpStream;
 use std::ops::Add;
 use std::path::Path;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
@@ -24,6 +26,12 @@ pub const DEFAULT_PIR_PROLONG_SECS: f32 = 900.0; //15min prolonging in override_
 pub const MIN_TOGGLE_DELAY_SECS: f32 = 1.0; //1sec flip-flop protection: minimum delay between toggles
 
 static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
+
+//yeelight consts
+pub const YEELIGHT_TCP_PORT: u16 = 55443;
+static YEELIGHT_METHOD_SET_POWER: &str = "set_power"; //method value name for powering on/off
+static YEELIGHT_EFFECT: &str = "smooth"; //default effect for turning on/off
+pub const YEELIGHT_DURATION_MS: u32 = 500; //duration of above effect
 
 fn get_w1_device_name(family_code: u8, address: u64) -> String {
     format!("{:02x}-{:012x}", family_code, address)
@@ -228,22 +236,70 @@ pub struct Yeelight {
     pub powered_on: bool,
 }
 
+#[derive(Serialize)]
+struct YeelightCommand {
+    id: u32,
+    method: String,
+    #[serde(serialize_with = "Yeelight::params_serialize")]
+    params: Vec<String>,
+}
+
 impl Yeelight {
+    fn params_serialize<S>(params: &Vec<String>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(params.len()))?;
+        for (pos, elem) in params.iter().enumerate() {
+            if pos == 2 {
+                //converting last parameter (duration of effect) to integer
+                let duration: u32 = elem.parse().unwrap_or_default();
+                seq.serialize_element(&duration)?;
+            } else {
+                //leaving as String
+                seq.serialize_element(&elem)?;
+            }
+        }
+        seq.end()
+    }
+
     fn yeelight_tcp_command(yeelight_name: String, ip_addr: String, turn_on: bool) {
-        //fixme: send a proper JSON request directly via a TCP to a Yeelight bulb
         let on_off = if turn_on { "on" } else { "off" };
-        let output = Command::new("/home/YeelightController/light.sh")
-            .args(&[ip_addr.clone(), on_off.to_string()])
-            .output()
-            .unwrap();
-        let result = String::from_utf8(output.stdout).unwrap();
-        info!(
-            "Yeelight: {}: script call result, ip={}, arg={}: {}",
-            yeelight_name,
-            result,
-            ip_addr,
-            on_off.to_string()
+        let cmd = YeelightCommand {
+            id: 1,
+            method: YEELIGHT_METHOD_SET_POWER.to_owned(),
+            params: vec![
+                on_off.to_owned(),
+                YEELIGHT_EFFECT.to_owned(),
+                YEELIGHT_DURATION_MS.to_string(),
+            ],
+        };
+
+        // serialize command to a JSON string
+        let mut json_cmd = serde_json::to_string(&cmd).unwrap();
+        debug!(
+            "Yeelight: {}: generated JSON command={:?}",
+            yeelight_name, json_cmd
         );
+        debug!("Yeelight: {}: connecting...", yeelight_name);
+        match TcpStream::connect(format!("{}:{}", ip_addr, YEELIGHT_TCP_PORT)) {
+            Err(e) => {
+                error!("Yeelight: {}: connection error: {:?}", yeelight_name, e);
+            }
+            Ok(mut stream) => {
+                debug!("Yeelight: {}: connected, sending command", yeelight_name);
+                json_cmd.push_str("\r\n"); //specs requirement
+                match stream.write_all(json_cmd.as_bytes()) {
+                    Err(e) => {
+                        error!(
+                            "Yeelight: {}: cannot write to socket: {:?}",
+                            yeelight_name, e
+                        );
+                    }
+                    Ok(_) => (),
+                }
+            }
+        }
     }
 
     fn turn_on_off(&mut self, turn_on: bool) {
