@@ -68,13 +68,33 @@ impl SensorBoard {
         match &mut self.file {
             Some(file) => {
                 let mut new_value = [0u8; 1];
-                file.seek(SeekFrom::Start(0)).expect("file seek error");
-                file.read_exact(&mut new_value).expect("error reading");
-                debug!(
-                    "{}: read byte: {:#04x}",
-                    get_w1_device_name(self.ow_family, self.ow_address),
-                    new_value[0]
-                );
+                match file.seek(SeekFrom::Start(0)) {
+                    Err(e) => {
+                        error!(
+                            "{}: file seek error: {:?}",
+                            get_w1_device_name(self.ow_family, self.ow_address),
+                            e,
+                        );
+                    }
+                    _ => {}
+                }
+                let result = file.read_exact(&mut new_value);
+                match result {
+                    Ok(file) => {
+                        debug!(
+                            "{}: read byte: {:#04x}",
+                            get_w1_device_name(self.ow_family, self.ow_address),
+                            new_value[0]
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "{}: error reading: {:?}",
+                            get_w1_device_name(self.ow_family, self.ow_address),
+                            e,
+                        );
+                    }
+                }
                 match self.last_value {
                     Some(val) => {
                         //we have last value to compare with
