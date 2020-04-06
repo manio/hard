@@ -60,9 +60,9 @@ impl Database {
                 let mut sensor_dev = self.sensor_devices.write().unwrap();
                 let mut relay_dev = self.relay_devices.write().unwrap();
 
-                info!("{}: Loading data from table 'kind'...", self.name);
+                info!("{}: Loading data from view 'kinds'...", self.name);
                 sensor_dev.kinds.clear();
-                for row in client.query("select * from kind", &[]).unwrap() {
+                for row in client.query("select * from kinds", &[]).unwrap() {
                     let id_kind: i32 = row.get("id_kind");
                     let name: String = row.get("name");
                     debug!("Got kind: {}: {}", id_kind, name);
@@ -103,9 +103,9 @@ impl Database {
                     );
                 }
 
-                info!("{}: Loading data from table 'relay'...", self.name);
+                info!("{}: Loading data from view 'relays'...", self.name);
                 relay_dev.relay_boards.clear();
-                for row in client.query("select * from relay", &[]).unwrap() {
+                for row in client.query("select * from relays", &[]).unwrap() {
                     let id_relay: i32 = row.get("id_relay");
                     let name: String = row.get("name");
                     let family_code: Option<i16> = row.get("family_code");
@@ -130,15 +130,9 @@ impl Database {
                     );
                 }
 
-                info!("{}: Loading data from table 'yeelight'...", self.name);
+                info!("{}: Loading data from view 'yeelights'...", self.name);
                 relay_dev.yeelight.clear();
-                for row in client
-                    .query(
-                        "select id_yeelight, name, host(ip_address) ip_address, pir_exclude, pir_hold_secs, switch_hold_secs from yeelight",
-                        &[],
-                    )
-                    .unwrap()
-                {
+                for row in client.query("select * from yeelights", &[]).unwrap() {
                     let id_yeelight: i32 = row.get("id_yeelight");
                     let name: String = row.get("name");
                     let ip_address: String = row.get("ip_address");
