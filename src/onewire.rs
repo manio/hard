@@ -4,6 +4,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Add;
 use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
@@ -228,8 +229,28 @@ pub struct Yeelight {
 }
 
 impl Yeelight {
+    fn yeelight_tcp_command(yeelight_name: String, ip_addr: String, turn_on: bool) {
+        //fixme: send a proper JSON request directly via a TCP to a Yeelight bulb
+        let on_off = if turn_on { "on" } else { "off" };
+        let output = Command::new("/home/YeelightController/light.sh")
+            .args(&[ip_addr.clone(), on_off.to_string()])
+            .output()
+            .unwrap();
+        let result = String::from_utf8(output.stdout).unwrap();
+        info!(
+            "Yeelight: {}: script call result, ip={}, arg={}: {}",
+            yeelight_name,
+            result,
+            ip_addr,
+            on_off.to_string()
+        );
+    }
+
     fn turn_on_off(&mut self, turn_on: bool) {
-        //todo: send a request to a Yeelight
+        let yeelight_name = self.name.clone();
+        let ip_address = self.ip_address.clone();
+        thread::spawn(move || Yeelight::yeelight_tcp_command(yeelight_name, ip_address, turn_on));
+
         self.powered_on = turn_on;
         self.last_toggled = Some(Instant::now());
     }
