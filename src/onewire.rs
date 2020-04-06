@@ -80,7 +80,7 @@ impl SensorBoard {
                 }
                 let result = file.read_exact(&mut new_value);
                 match result {
-                    Ok(file) => {
+                    Ok(_) => {
                         debug!(
                             "{}: read byte: {:#04x}",
                             get_w1_device_name(self.ow_family, self.ow_address),
