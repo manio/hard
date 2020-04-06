@@ -4,6 +4,7 @@ use serde::{Serialize, Serializer};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::net::TcpStream;
 use std::ops::Add;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -275,11 +276,30 @@ impl Yeelight {
         };
 
         // serialize command to a JSON string
-        let json_cmd = serde_json::to_string(&cmd).unwrap();
+        let mut json_cmd = serde_json::to_string(&cmd).unwrap();
         debug!(
             "Yeelight: {}: generated JSON command={:?}",
             yeelight_name, json_cmd
         );
+        debug!("Yeelight: {}: connecting...", yeelight_name);
+        match TcpStream::connect(format!("{}:{}", ip_addr, YEELIGHT_TCP_PORT)) {
+            Err(e) => {
+                error!("Yeelight: {}: connection error: {:?}", yeelight_name, e);
+            }
+            Ok(mut stream) => {
+                debug!("Yeelight: {}: connected, sending command", yeelight_name);
+                json_cmd.push_str("\r\n"); //specs requirement
+                match stream.write_all(json_cmd.as_bytes()) {
+                    Err(e) => {
+                        error!(
+                            "Yeelight: {}: cannot write to socket: {:?}",
+                            yeelight_name, e
+                        );
+                    }
+                    Ok(_) => (),
+                }
+            }
+        }
     }
 
     fn turn_on_off(&mut self, turn_on: bool) {
