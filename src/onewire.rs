@@ -1,7 +1,7 @@
 use crate::database::{CommandCode, DbTask};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::ops::Add;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -175,9 +175,40 @@ impl RelayBoard {
         }
 
         match &mut self.file {
-            Some(file) => {
-                //todo
-            }
+            Some(file) => match self.new_value {
+                Some(val) => {
+                    info!(
+                        "{}: saving output byte: {:#04x}",
+                        get_w1_device_name(self.ow_family, self.ow_address),
+                        val
+                    );
+                    match file.seek(SeekFrom::Start(0)) {
+                        Err(e) => {
+                            error!(
+                                "{}: file seek error: {:?}",
+                                get_w1_device_name(self.ow_family, self.ow_address),
+                                e,
+                            );
+                        }
+                        _ => {}
+                    }
+                    let new_value = [val; 1];
+                    match file.write_all(&new_value) {
+                        Ok(_) => {
+                            self.last_value = Some(val);
+                            self.new_value = None;
+                        }
+                        Err(e) => {
+                            error!(
+                                "{}: error writing output byte: {:?}",
+                                get_w1_device_name(self.ow_family, self.ow_address),
+                                e,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            },
             None => (),
         }
     }
