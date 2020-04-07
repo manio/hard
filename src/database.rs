@@ -114,9 +114,10 @@ impl Database {
                     let pir_exclude: bool = row.get("pir_exclude");
                     let pir_hold_secs = row.get("pir_hold_secs");
                     let switch_hold_secs = row.get("switch_hold_secs");
+                    let initial_state: bool = row.get("initial_state");
                     debug!(
-                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?}",
-                        id_relay, name, family_code, address, bit, pir_exclude, pir_hold_secs, switch_hold_secs
+                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?} initial_state={}",
+                        id_relay, name, family_code, address, bit, pir_exclude, pir_hold_secs, switch_hold_secs, initial_state
                     );
                     relay_dev.add_relay(
                         id_relay,
@@ -127,6 +128,7 @@ impl Database {
                         pir_exclude,
                         pir_hold_secs,
                         switch_hold_secs,
+                        initial_state,
                     );
                 }
 

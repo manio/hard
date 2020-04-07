@@ -390,6 +390,7 @@ impl RelayDevices {
         pir_exclude: bool,
         pir_hold_secs: Option<f32>,
         switch_hold_secs: Option<f32>,
+        initial_state: bool,
     ) {
         //find or create a relay board
         let relay_board = match self
@@ -421,6 +422,20 @@ impl RelayDevices {
             }
         };
 
+        //if the initial_state is true, then we are turning on this relay
+        if initial_state {
+            let mut new_state = relay_board.last_value.unwrap_or(DS2408_INITIAL_STATE);
+            new_state = new_state & !(1 << bit as u8);
+            warn!(
+                "{}: Initial state is active for: {}: bit={} new state: {:#04x}",
+                get_w1_device_name(relay_board.ow_family, relay_board.ow_address),
+                name.clone(),
+                bit,
+                new_state,
+            );
+            relay_board.new_value = Some(new_state);
+        }
+
         //create and attach a relay
         let relay = Relay {
             id_relay,
@@ -428,7 +443,7 @@ impl RelayDevices {
             pir_exclude,
             pir_hold_secs: pir_hold_secs.unwrap_or(DEFAULT_PIR_HOLD_SECS),
             switch_hold_secs: switch_hold_secs.unwrap_or(DEFAULT_SWITCH_HOLD_SECS),
-            override_mode: false,
+            override_mode: initial_state,
             last_toggled: None,
             stop_after: None,
         };
