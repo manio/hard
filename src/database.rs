@@ -143,9 +143,10 @@ impl Database {
                     let pir_exclude: bool = row.get("pir_exclude");
                     let pir_hold_secs = row.get("pir_hold_secs");
                     let switch_hold_secs = row.get("switch_hold_secs");
+                    let pir_all_day: bool = row.get("pir_all_day");
                     debug!(
-                        "Got yeelight: id_yeelight={} name={:?} ip_address={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?}",
-                        id_yeelight, name, ip_address, pir_exclude, pir_hold_secs, switch_hold_secs
+                        "Got yeelight: id_yeelight={} name={:?} ip_address={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?} pir_all_day={}",
+                        id_yeelight, name, ip_address, pir_exclude, pir_hold_secs, switch_hold_secs, pir_all_day
                     );
                     relay_dev.add_yeelight(
                         id_yeelight,
@@ -154,6 +155,7 @@ impl Database {
                         pir_exclude,
                         pir_hold_secs,
                         switch_hold_secs,
+                        pir_all_day,
                     );
                 }
             }

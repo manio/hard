@@ -231,6 +231,7 @@ pub struct Yeelight {
     pub pir_exclude: bool,
     pub pir_hold_secs: f32,
     pub switch_hold_secs: f32,
+    pub pir_all_day: bool,
     pub override_mode: bool,
     pub last_toggled: Option<Instant>,
     pub stop_after: Option<Duration>,
@@ -461,6 +462,7 @@ impl RelayDevices {
         pir_exclude: bool,
         pir_hold_secs: Option<f32>,
         switch_hold_secs: Option<f32>,
+        pir_all_day: bool,
     ) {
         //create and add a yeelight
         let light = Yeelight {
@@ -470,6 +472,7 @@ impl RelayDevices {
             pir_exclude,
             pir_hold_secs: pir_hold_secs.unwrap_or(DEFAULT_PIR_HOLD_SECS),
             switch_hold_secs: switch_hold_secs.unwrap_or(DEFAULT_SWITCH_HOLD_SECS),
+            pir_all_day,
             override_mode: false,
             last_toggled: None,
             stop_after: None,
