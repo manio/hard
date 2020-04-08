@@ -1,7 +1,6 @@
 #![feature(proc_macro_hygiene, decl_macro)]
-
-#[macro_use]
-use rocket;
+//#[macro_use] - line disabled
+use rocket::get;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
