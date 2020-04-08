@@ -517,6 +517,7 @@ impl OneWire {
 
             debug!("doing stuff");
             {
+                let mut night = false;
                 let mut sensor_dev = self.sensor_devices.write().unwrap();
                 let mut relay_dev = self.relay_devices.write().unwrap();
 
@@ -609,7 +610,7 @@ impl OneWire {
                                                                                 "PIR_Trigger" => {
                                                                                     if !relay
                                                                                         .pir_exclude
-                                                                                        && on
+                                                                                        && on && (night || relay.pir_all_day)
                                                                                     {
                                                                                         //checking if bit is set (relay is off)
                                                                                         if !relay.override_mode && new_state & (1 << i as u8) != 0 {
@@ -731,6 +732,9 @@ impl OneWire {
                                                                     "PIR_Trigger" => {
                                                                         if !yeelight.pir_exclude
                                                                             && on
+                                                                            && (night
+                                                                                || yeelight
+                                                                                    .pir_all_day)
                                                                         {
                                                                             //checking if yeelight is off
                                                                             if !yeelight
