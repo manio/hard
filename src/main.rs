@@ -1,3 +1,5 @@
+#![feature(proc_macro_hygiene, decl_macro)]
+
 #[macro_use]
 extern crate log;
 extern crate ctrlc;
@@ -19,6 +21,7 @@ use std::time::Duration;
 
 mod database;
 mod onewire;
+mod webserver;
 
 fn log_location() -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
@@ -131,6 +134,19 @@ fn main() {
     let thread_handler = thread_builder
         .spawn(move || {
             onewire.worker(worker_cancel_flag);
+        })
+        .unwrap();
+    threads.push(thread_handler);
+
+    //creating webserver thread
+    let webserver = webserver::WebServer {
+        name: "webserver".to_string(),
+    };
+    let worker_cancel_flag = cancel_flag.clone();
+    let thread_builder = thread::Builder::new().name("webserver".into()); //thread name
+    let thread_handler = thread_builder
+        .spawn(move || {
+            webserver.worker(worker_cancel_flag);
         })
         .unwrap();
     threads.push(thread_handler);
