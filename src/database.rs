@@ -80,8 +80,9 @@ impl Database {
                     let bit: i16 = row.get("bit");
                     let relay_agg: Vec<i32> = row.try_get("relay_agg").unwrap_or(vec![]);
                     let yeelight_agg: Vec<i32> = row.try_get("yeelight_agg").unwrap_or(vec![]);
+                    let tags: Vec<String> = row.try_get("tags").unwrap_or(vec![]);
                     debug!(
-                        "Got sensor: id_sensor={} kind={:?} name={:?} family_code={:?} address={} bit={} relay_agg={:?} yeelight_agg={:?}",
+                        "Got sensor: id_sensor={} kind={:?} name={:?} family_code={:?} address={} bit={} relay_agg={:?} yeelight_agg={:?} tags={:?}",
                         id_sensor,
                         sensor_dev.kinds.get(&id_kind).unwrap(),
                         name,
@@ -90,6 +91,7 @@ impl Database {
                         bit,
                         relay_agg,
                         yeelight_agg,
+                        tags,
                     );
                     sensor_dev.add_sensor(
                         id_sensor,
@@ -100,6 +102,7 @@ impl Database {
                         bit as u8,
                         relay_agg,
                         yeelight_agg,
+                        tags,
                     );
                 }
 
@@ -116,9 +119,10 @@ impl Database {
                     let switch_hold_secs = row.get("switch_hold_secs");
                     let initial_state: bool = row.get("initial_state");
                     let pir_all_day: bool = row.get("pir_all_day");
+                    let tags: Vec<String> = row.try_get("tags").unwrap_or(vec![]);
                     debug!(
-                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?} initial_state={} pir_all_day={}",
-                        id_relay, name, family_code, address, bit, pir_exclude, pir_hold_secs, switch_hold_secs, initial_state, pir_all_day
+                        "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?} initial_state={} pir_all_day={} tags={:?}",
+                        id_relay, name, family_code, address, bit, pir_exclude, pir_hold_secs, switch_hold_secs, initial_state, pir_all_day, tags
                     );
                     relay_dev.add_relay(
                         id_relay,
@@ -131,6 +135,7 @@ impl Database {
                         switch_hold_secs,
                         initial_state,
                         pir_all_day,
+                        tags,
                     );
                 }
 
@@ -144,9 +149,10 @@ impl Database {
                     let pir_hold_secs = row.get("pir_hold_secs");
                     let switch_hold_secs = row.get("switch_hold_secs");
                     let pir_all_day: bool = row.get("pir_all_day");
+                    let tags: Vec<String> = row.try_get("tags").unwrap_or(vec![]);
                     debug!(
-                        "Got yeelight: id_yeelight={} name={:?} ip_address={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?} pir_all_day={}",
-                        id_yeelight, name, ip_address, pir_exclude, pir_hold_secs, switch_hold_secs, pir_all_day
+                        "Got yeelight: id_yeelight={} name={:?} ip_address={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?} pir_all_day={} tags={:?}",
+                        id_yeelight, name, ip_address, pir_exclude, pir_hold_secs, switch_hold_secs, pir_all_day, tags
                     );
                     relay_dev.add_yeelight(
                         id_yeelight,
@@ -156,6 +162,7 @@ impl Database {
                         pir_hold_secs,
                         switch_hold_secs,
                         pir_all_day,
+                        tags,
                     );
                 }
             }

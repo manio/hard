@@ -41,6 +41,7 @@ pub struct Sensor {
     pub id_sensor: i32,
     pub id_kind: i32,
     pub name: String,
+    pub tags: Vec<String>,
     pub associated_relays: Vec<i32>,
     pub associated_yeelights: Vec<i32>,
 }
@@ -133,6 +134,7 @@ impl SensorBoard {
 pub struct Relay {
     pub id_relay: i32,
     pub name: String,
+    pub tags: Vec<String>,
     pub pir_exclude: bool,
     pub pir_hold_secs: f32,
     pub switch_hold_secs: f32,
@@ -227,6 +229,7 @@ impl RelayBoard {
 pub struct Yeelight {
     pub id_yeelight: i32,
     pub name: String,
+    pub tags: Vec<String>,
     pub ip_address: String,
     pub pir_exclude: bool,
     pub pir_hold_secs: f32,
@@ -335,6 +338,7 @@ impl SensorDevices {
         bit: u8,
         associated_relays: Vec<i32>,
         associated_yeelights: Vec<i32>,
+        tags: Vec<String>,
     ) {
         //find or create a sensor board
         let sens_board = match self
@@ -366,6 +370,7 @@ impl SensorDevices {
             id_sensor,
             id_kind,
             name,
+            tags,
             associated_relays,
             associated_yeelights,
         };
@@ -394,6 +399,7 @@ impl RelayDevices {
         switch_hold_secs: Option<f32>,
         initial_state: bool,
         pir_all_day: bool,
+        tags: Vec<String>,
     ) {
         //find or create a relay board
         let relay_board = match self
@@ -443,6 +449,7 @@ impl RelayDevices {
         let relay = Relay {
             id_relay,
             name,
+            tags,
             pir_exclude,
             pir_hold_secs: pir_hold_secs.unwrap_or(DEFAULT_PIR_HOLD_SECS),
             switch_hold_secs: switch_hold_secs.unwrap_or(DEFAULT_SWITCH_HOLD_SECS),
@@ -463,11 +470,13 @@ impl RelayDevices {
         pir_hold_secs: Option<f32>,
         switch_hold_secs: Option<f32>,
         pir_all_day: bool,
+        tags: Vec<String>,
     ) {
         //create and add a yeelight
         let light = Yeelight {
             id_yeelight,
             name,
+            tags,
             ip_address,
             pir_exclude,
             pir_hold_secs: pir_hold_secs.unwrap_or(DEFAULT_PIR_HOLD_SECS),
