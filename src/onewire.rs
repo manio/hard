@@ -491,6 +491,48 @@ impl RelayDevices {
     }
 }
 
+pub struct StateMachine {
+    pub name: String,
+}
+
+impl StateMachine {
+    /* all below hook functions are returning bool, which means:
+    true - continue processing
+    false - stop processing the event (don't turn the relays, etc) */
+
+    fn sensor_hook(
+        &mut self,
+        sensor_kind_code: &str,
+        sensor_on: bool,
+        sensor_tags: &Vec<String>,
+        night: bool,
+    ) -> bool {
+        true
+    }
+
+    fn relay_hook(
+        &mut self,
+        sensor_kind_code: &str,
+        sensor_on: bool,
+        relay_tags: &Vec<String>,
+        night: bool,
+        flipflop_block: bool,
+    ) -> bool {
+        true
+    }
+
+    fn yeelight_hook(
+        &mut self,
+        sensor_kind_code: &str,
+        sensor_on: bool,
+        yeelight_tags: &Vec<String>,
+        night: bool,
+        flipflop_block: bool,
+    ) -> bool {
+        true
+    }
+}
+
 pub struct OneWire {
     pub name: String,
     pub transmitter: Sender<DbTask>,
@@ -517,6 +559,9 @@ impl OneWire {
 
     pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
+        let mut state_machine = StateMachine {
+            name: "statemachine".to_owned(),
+        };
 
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
@@ -569,8 +614,17 @@ impl OneWire {
                                                     let kind_code =
                                                         kinds_cloned.get(&sensor.id_kind).unwrap();
                                                     let on: bool = new_value & (1 << bit) != 0;
+
+                                                    //check hook function result and stop processing when needed
+                                                    let stop_processing = !state_machine
+                                                        .sensor_hook(
+                                                            &kind_code,
+                                                            on,
+                                                            &sensor.tags,
+                                                            night,
+                                                        );
                                                     info!(
-                                                        "{}: [{} {} {}]: {:#04x} on: {}",
+                                                        "{}: [{} {} {}]: {:#04x} on: {}, stop_processing: {}",
                                                         kind_code,
                                                         get_w1_device_name(
                                                             sb.ow_family,
@@ -579,8 +633,12 @@ impl OneWire {
                                                         pio_name,
                                                         sensor.name,
                                                         new_value,
-                                                        on
+                                                        on,
+                                                        stop_processing
                                                     );
+                                                    if stop_processing {
+                                                        continue;
+                                                    }
 
                                                     //trigger actions for relays
                                                     let associated_relays =
@@ -605,6 +663,28 @@ impl OneWire {
                                                                                     }
                                                                                 }
                                                                                 _ => {}
+                                                                            }
+
+                                                                            //check hook function result and stop processing when needed
+                                                                            let stop_processing =
+                                                                                !state_machine
+                                                                                    .relay_hook(
+                                                                                    &kind_code,
+                                                                                    on,
+                                                                                    &relay.tags,
+                                                                                    night,
+                                                                                    flipflop_block,
+                                                                                );
+                                                                            if stop_processing {
+                                                                                debug!(
+                                                                                    "{}: {}: stopped processing",
+                                                                                    get_w1_device_name(
+                                                                                        rb.ow_family,
+                                                                                        rb.ow_address
+                                                                                    ),
+                                                                                    relay.name,
+                                                                                );
+                                                                                continue;
                                                                             }
 
                                                                             //we will be computing new output byte for a relay board
@@ -735,6 +815,23 @@ impl OneWire {
                                                                         }
                                                                     }
                                                                     _ => {}
+                                                                }
+
+                                                                //check hook function result and stop processing when needed
+                                                                let stop_processing =
+                                                                    !state_machine.yeelight_hook(
+                                                                        &kind_code,
+                                                                        on,
+                                                                        &yeelight.tags,
+                                                                        night,
+                                                                        flipflop_block,
+                                                                    );
+                                                                if stop_processing {
+                                                                    debug!(
+                                                                        "Yeelight: {}: stopped processing",
+                                                                        yeelight.name,
+                                                                    );
+                                                                    continue;
                                                                 }
 
                                                                 match kind_code.as_ref() {
