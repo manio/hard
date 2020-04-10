@@ -493,6 +493,7 @@ impl RelayDevices {
 
 pub struct StateMachine {
     pub name: String,
+    pub bedroom_mode: bool,
 }
 
 impl StateMachine {
@@ -507,6 +508,28 @@ impl StateMachine {
         sensor_tags: &Vec<String>,
         night: bool,
     ) -> bool {
+        if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
+            for tag in sensor_tags {
+                match tag.as_ref() {
+                    "bedroom_enable" => {
+                        return if !self.bedroom_mode {
+                            info!("{}: bedroom mode enabled", self.name);
+                            self.bedroom_mode = true;
+                            true //allow single turn-on
+                        } else {
+                            false
+                        };
+                    }
+                    "bedroom_disable" => {
+                        if self.bedroom_mode {
+                            info!("{}: bedroom mode disabled", self.name);
+                            self.bedroom_mode = false;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
         true
     }
 
@@ -561,6 +584,7 @@ impl OneWire {
         info!("{}: Starting thread", self.name);
         let mut state_machine = StateMachine {
             name: "statemachine".to_owned(),
+            bedroom_mode: false,
         };
 
         loop {
