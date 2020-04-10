@@ -541,6 +541,16 @@ impl StateMachine {
         night: bool,
         flipflop_block: bool,
     ) -> bool {
+        if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
+            for tag in relay_tags {
+                match tag.as_ref() {
+                    "night_exclude" => {
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+        }
         true
     }
 
