@@ -10,6 +10,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::{Arc, RwLock};
 
 use crate::onewire;
+use crate::onewire_env;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::thread;
@@ -25,6 +26,7 @@ pub struct Database {
     pub conn: Option<postgres::Client>,
     pub sensor_devices: Arc<RwLock<onewire::SensorDevices>>,
     pub relay_devices: Arc<RwLock<onewire::RelayDevices>>,
+    pub env_sensor_devices: Arc<RwLock<onewire_env::EnvSensorDevices>>,
     pub sensor_counters: HashMap<i32, u32>,
     pub relay_counters: HashMap<i32, u32>,
     pub yeelight_counters: HashMap<i32, u32>,
@@ -58,15 +60,18 @@ impl Database {
         match self.conn.borrow_mut() {
             Some(client) => {
                 let mut sensor_dev = self.sensor_devices.write().unwrap();
+                let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
                 let mut relay_dev = self.relay_devices.write().unwrap();
 
                 info!("{}: Loading data from view 'kinds'...", self.name);
                 sensor_dev.kinds.clear();
+                env_sensor_dev.kinds.clear();
                 for row in client.query("select * from kinds", &[]).unwrap() {
                     let id_kind: i32 = row.get("id_kind");
                     let name: String = row.get("name");
                     debug!("Got kind: {}: {}", id_kind, name);
-                    sensor_dev.kinds.insert(id_kind, name);
+                    sensor_dev.kinds.insert(id_kind, name.clone());
+                    env_sensor_dev.kinds.insert(id_kind, name);
                 }
 
                 info!("{}: Loading data from view 'sensors'...", self.name);
@@ -100,6 +105,40 @@ impl Database {
                         family_code,
                         address as u64,
                         bit as u8,
+                        relay_agg,
+                        yeelight_agg,
+                        tags,
+                    );
+                }
+
+                info!("{}: Loading data from view 'env_sensors'...", self.name);
+                env_sensor_dev.env_sensors.clear();
+                for row in client.query("select * from env_sensors", &[]).unwrap() {
+                    let id_sensor: i32 = row.get("id_sensor");
+                    let id_kind: i32 = row.get("id_kind");
+                    let name: String = row.get("name");
+                    let family_code: Option<i16> = row.get("family_code");
+                    let address: i32 = row.get("address");
+                    let relay_agg: Vec<i32> = row.try_get("relay_agg").unwrap_or(vec![]);
+                    let yeelight_agg: Vec<i32> = row.try_get("yeelight_agg").unwrap_or(vec![]);
+                    let tags: Vec<String> = row.try_get("tags").unwrap_or(vec![]);
+                    debug!(
+                        "Got env sensor: id_sensor={} kind={:?} name={:?} family_code={:?} address={} relay_agg={:?} yeelight_agg={:?} tags={:?}",
+                        id_sensor,
+                        env_sensor_dev.kinds.get(&id_kind).unwrap(),
+                        name,
+                        family_code,
+                        address,
+                        relay_agg,
+                        yeelight_agg,
+                        tags,
+                    );
+                    env_sensor_dev.add_sensor(
+                        id_sensor,
+                        id_kind,
+                        name,
+                        family_code,
+                        address as u64,
                         relay_agg,
                         yeelight_agg,
                         tags,

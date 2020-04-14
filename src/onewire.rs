@@ -17,6 +17,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 //family codes for devices
 pub const FAMILY_CODE_DS2413: u8 = 0x3a;
 pub const FAMILY_CODE_DS2408: u8 = 0x29;
+pub const FAMILY_CODE_DS18S20: u8 = 0x10;
+pub const FAMILY_CODE_DS18B20: u8 = 0x28;
 
 pub const DS2408_INITIAL_STATE: u8 = 0xff;
 
@@ -26,7 +28,7 @@ pub const DEFAULT_SWITCH_HOLD_SECS: f32 = 3600.0; //1hour for wall-switches
 pub const DEFAULT_PIR_PROLONG_SECS: f32 = 900.0; //15min prolonging in override_mode
 pub const MIN_TOGGLE_DELAY_SECS: f32 = 1.0; //1sec flip-flop protection: minimum delay between toggles
 
-static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
+pub static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
 
 //yeelight consts
 pub const YEELIGHT_TCP_PORT: u16 = 55443;
@@ -37,7 +39,7 @@ pub const YEELIGHT_DURATION_MS: u32 = 500; //duration of above effect
 pub const DAYLIGHT_SUN_DEGREE: f64 = 3.0; //sun elevation for day/night switching
 pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating sun position
 
-fn get_w1_device_name(family_code: u8, address: u64) -> String {
+pub fn get_w1_device_name(family_code: u8, address: u64) -> String {
     format!("{:02x}-{:012x}", family_code, address)
 }
 

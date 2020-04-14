@@ -21,6 +21,7 @@ use std::time::Duration;
 
 mod database;
 mod onewire;
+mod onewire_env;
 mod webserver;
 
 fn log_location() -> Option<String> {
@@ -94,8 +95,13 @@ fn main() {
         relay_boards: vec![],
         yeelight: vec![],
     };
+    let env_sensor_devices = onewire_env::EnvSensorDevices {
+        kinds: HashMap::new(),
+        env_sensors: vec![],
+    };
     let onewire_sensor_devices = Arc::new(RwLock::new(sensor_devices));
     let onewire_relay_devices = Arc::new(RwLock::new(relay_devices));
+    let onewire_env_sensor_devices = Arc::new(RwLock::new(env_sensor_devices));
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //thread comm channel
 
     //creating db thread
@@ -109,6 +115,7 @@ fn main() {
         conn: None,
         sensor_devices: onewire_sensor_devices.clone(),
         relay_devices: onewire_relay_devices.clone(),
+        env_sensor_devices: onewire_env_sensor_devices.clone(),
         sensor_counters: Default::default(),
         relay_counters: Default::default(),
         yeelight_counters: Default::default(),
@@ -134,6 +141,20 @@ fn main() {
     let thread_handler = thread_builder
         .spawn(move || {
             onewire.worker(worker_cancel_flag);
+        })
+        .unwrap();
+    threads.push(thread_handler);
+
+    //creating onewire_env thread
+    let onewire_env = onewire_env::OneWireEnv {
+        name: "onewire_env".to_string(),
+        env_sensor_devices: onewire_env_sensor_devices.clone(),
+    };
+    let worker_cancel_flag = cancel_flag.clone();
+    let thread_builder = thread::Builder::new().name("onewire_env".into()); //thread name
+    let thread_handler = thread_builder
+        .spawn(move || {
+            onewire_env.worker(worker_cancel_flag);
         })
         .unwrap();
     threads.push(thread_handler);
