@@ -434,6 +434,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simplelog",
+ "sun",
 ]
 
 [[package]]
@@ -1230,6 +1231,12 @@ name = "subtle"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d67a5a62ba6e01cb2192ff309324cb4875d0c451d55fe2319433abe7a05a8ee"
+
+[[package]]
+name = "sun"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfc29238f46800dc0e29dbc0b3cab5e745dd40560220f759e30d298740781b59"
 
 [[package]]
 name = "syn"

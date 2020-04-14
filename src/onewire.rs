@@ -1,4 +1,5 @@
 use crate::database::{CommandCode, DbTask};
+use ini::Ini;
 use serde::ser::SerializeSeq;
 use serde::{Serialize, Serializer};
 use std::collections::HashMap;
@@ -11,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 //family codes for devices
 pub const FAMILY_CODE_DS2413: u8 = 0x3a;
@@ -32,6 +33,9 @@ pub const YEELIGHT_TCP_PORT: u16 = 55443;
 static YEELIGHT_METHOD_SET_POWER: &str = "set_power"; //method value name for powering on/off
 static YEELIGHT_EFFECT: &str = "smooth"; //default effect for turning on/off
 pub const YEELIGHT_DURATION_MS: u32 = 500; //duration of above effect
+
+pub const DAYLIGHT_SUN_DEGREE: f64 = 3.0; //sun elevation for day/night switching
+pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating sun position
 
 fn get_w1_device_name(family_code: u8, address: u64) -> String {
     format!("{:02x}-{:012x}", family_code, address)
@@ -590,12 +594,43 @@ impl OneWire {
         self.transmitter.send(task).unwrap();
     }
 
+    fn load_geolocation_config(&self, lat: &mut f64, lon: &mut f64) {
+        let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+        let section = conf
+            .section(Some("general".to_owned()))
+            .expect("Cannot find general section in config");
+        *lat = section
+            .get("lat")
+            .unwrap_or(&"0.0".to_owned())
+            .parse()
+            .unwrap_or_default();
+        *lon = section
+            .get("lon")
+            .unwrap_or(&"0.0".to_owned())
+            .parse()
+            .unwrap_or_default();
+    }
+
     pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
         let mut state_machine = StateMachine {
             name: "statemachine".to_owned(),
             bedroom_mode: false,
         };
+
+        //geo location for sun calculation
+        let mut lat: f64 = 0.0;
+        let mut lon: f64 = 0.0;
+        let mut night_check = None;
+        let mut night = false;
+        self.load_geolocation_config(&mut lat, &mut lon);
+        if lat != 0.0 && lon != 0.0 {
+            night_check = Some(Instant::now());
+            info!(
+                "{}: calculating sun position for lat: {}, long: {}",
+                self.name, lat, lon
+            );
+        }
 
         loop {
             let loop_start = Instant::now();
@@ -606,7 +641,6 @@ impl OneWire {
 
             debug!("doing stuff");
             {
-                let mut night = false;
                 let mut sensor_dev = self.sensor_devices.write().unwrap();
                 let mut relay_dev = self.relay_devices.write().unwrap();
 
@@ -996,6 +1030,33 @@ impl OneWire {
                         None => (),
                     }
                     thread::sleep(Duration::from_micros(500));
+                }
+
+                //checking day/night
+                if night_check.is_some()
+                    && night_check.unwrap().elapsed()
+                        > Duration::from_secs_f32(SUN_POS_CHECK_INTERVAL_SECS)
+                {
+                    night_check = Some(Instant::now());
+                    let start = SystemTime::now();
+                    let since_the_epoch = start
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards");
+                    let unixtime = since_the_epoch.as_millis();
+                    let pos = sun::pos(unixtime as i64, lat, lon);
+                    let az = pos.azimuth.to_degrees();
+                    let alt = pos.altitude.to_degrees();
+                    debug!("the position of the sun is az: {} / alt: {}", az, alt);
+                    let new_night = alt < DAYLIGHT_SUN_DEGREE;
+
+                    if night != new_night {
+                        night = new_night;
+                        if night {
+                            info!("{}: Enabling night mode", self.name);
+                        } else {
+                            info!("{}: Disabling night mode", self.name);
+                        }
+                    }
                 }
 
                 //checking for auto turn-off of necessary relays
