@@ -598,6 +598,7 @@ impl OneWire {
         };
 
         loop {
+            let loop_start = Instant::now();
             if worker_cancel_flag.load(Ordering::SeqCst) {
                 debug!("Got terminate signal from main");
                 break;
@@ -1101,6 +1102,11 @@ impl OneWire {
                     }
                 }
             }
+
+            debug!(
+                "Loop iteration total time: {} ms",
+                loop_start.elapsed().as_millis()
+            );
         }
         info!("{}: Stopping thread", self.name);
     }
