@@ -1056,6 +1056,55 @@ impl OneWire {
                         } else {
                             info!("{}: Disabling night mode", self.name);
                         }
+
+                        for rb in &mut relay_dev.relay_boards {
+                            //we will be eventually computing new output byte for a relay board
+                            //so first of all get the base/previous value
+                            let mut new_state: u8 = match rb.new_value {
+                                Some(val) => val,
+                                None => rb.last_value.unwrap_or(DS2408_INITIAL_STATE),
+                            };
+
+                            //iteration on all relays and check 'all night' tag
+                            for i in 0..=7 {
+                                match &mut rb.relay[i] {
+                                    Some(relay) => {
+                                        for tag in &relay.tags {
+                                            match tag.as_ref() {
+                                                "all_night" => {
+                                                    if night {
+                                                        //turn ON relay
+                                                        new_state = new_state & !(1 << i as u8);
+                                                    } else {
+                                                        //turn OFF relay
+                                                        new_state = new_state | (1 << i as u8);
+                                                    }
+                                                    info!(
+                                                        "{}: Day/night auto turn: {}: bit={} new state: {:#04x}",
+                                                        get_w1_device_name(
+                                                            rb.ow_family,
+                                                            rb.ow_address
+                                                        ),
+                                                        relay.name,
+                                                        i,
+                                                        new_state,
+                                                    );
+                                                    relay.last_toggled = Some(Instant::now());
+                                                    relay.stop_after = None;
+                                                    self.increment_relay_counter(relay.id_relay);
+                                                    rb.new_value = Some(new_state);
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            //save output state when needed
+                            rb.save_state();
+                        }
                     }
                 }
 
