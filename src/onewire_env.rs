@@ -179,9 +179,10 @@ impl OneWireEnv {
                             match sensor.read_temperature() {
                                 Some(temp) => {
                                     info!(
-                                        "{}: temperature: {} °C",
+                                        "{}: {}: temperature: {} °C",
                                         get_w1_device_name(sensor.ow_family, sensor.ow_address),
-                                        temp
+                                        sensor.name,
+                                        temp,
                                     );
                                 }
                                 _ => {}
