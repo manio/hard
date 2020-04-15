@@ -23,8 +23,12 @@ pub struct EnvSensor {
 }
 
 impl EnvSensor {
+    fn is_temp_sensor(&self) -> bool {
+        self.ow_family == FAMILY_CODE_DS18B20 || self.ow_family == FAMILY_CODE_DS18S20
+    }
+
     fn open(&mut self) {
-        if self.ow_family == FAMILY_CODE_DS18B20 || self.ow_family == FAMILY_CODE_DS18S20 {
+        if self.is_temp_sensor() {
             let path = format!(
                 "{}/{}/w1_slave",
                 W1_ROOT_PATH,
@@ -171,15 +175,17 @@ impl OneWireEnv {
                     let kinds_cloned = env_sensor_dev.kinds.clone();
 
                     for sensor in &mut env_sensor_dev.env_sensors {
-                        match sensor.read_temperature() {
-                            Some(temp) => {
-                                info!(
-                                    "{}: temperature: {} °C",
-                                    get_w1_device_name(sensor.ow_family, sensor.ow_address),
-                                    temp
-                                );
+                        if sensor.is_temp_sensor() {
+                            match sensor.read_temperature() {
+                                Some(temp) => {
+                                    info!(
+                                        "{}: temperature: {} °C",
+                                        get_w1_device_name(sensor.ow_family, sensor.ow_address),
+                                        temp
+                                    );
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                 }
