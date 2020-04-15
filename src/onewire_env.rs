@@ -6,7 +6,9 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+pub const TEMP_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between measuring temperature
 
 pub struct EnvSensor {
     pub id_sensor: i32,
@@ -50,7 +52,53 @@ impl EnvSensor {
 
         match &mut self.file {
             Some(file) => {
-                //todo
+                match file.seek(SeekFrom::Start(0)) {
+                    Err(e) => {
+                        error!(
+                            "{}: file seek error: {:?}",
+                            get_w1_device_name(self.ow_family, self.ow_address),
+                            e,
+                        );
+                    }
+                    _ => {}
+                }
+                let mut data = String::new();
+                match file.read_to_string(&mut data) {
+                    Ok(_) => {
+                        debug!(
+                            "{}: temperature data: {}",
+                            get_w1_device_name(self.ow_family, self.ow_address),
+                            data,
+                        );
+                        for line in data.lines() {
+                            if line.contains("crc") {
+                                if line.contains("YES") {
+                                    continue;
+                                } else if line.contains("NO") {
+                                    error!(
+                                        "{}: got CRC error in temperature data",
+                                        get_w1_device_name(self.ow_family, self.ow_address),
+                                    );
+                                    break;
+                                }
+                            } else if line.contains("t=") {
+                                let v: Vec<&str> = line.split("=").collect();
+                                let val = match v.get(1) {
+                                    Some(&temp_value) => temp_value.parse::<f32>().ok(),
+                                    _ => None,
+                                };
+                                return val.and_then(|x| Some(x / 1000.0));
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "{}: error reading: {:?}",
+                            get_w1_device_name(self.ow_family, self.ow_address),
+                            e,
+                        );
+                    }
+                }
             }
             None => (),
         }
@@ -104,6 +152,7 @@ pub struct OneWireEnv {
 impl OneWireEnv {
     pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
+        let mut last_temp_check = Instant::now();
 
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
@@ -111,17 +160,31 @@ impl OneWireEnv {
                 break;
             }
 
-            debug!("doing stuff");
-            {
-                let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
+            if last_temp_check.elapsed() > Duration::from_secs_f32(TEMP_CHECK_INTERVAL_SECS) {
+                last_temp_check = Instant::now();
 
-                //fixme: do we really need to clone this HashMap to use it below?
-                let kinds_cloned = env_sensor_dev.kinds.clone();
+                debug!("measuring temperatures...");
+                {
+                    let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
 
-                for sensor in &mut env_sensor_dev.env_sensors {
-                    //todo
+                    //fixme: do we really need to clone this HashMap to use it below?
+                    let kinds_cloned = env_sensor_dev.kinds.clone();
+
+                    for sensor in &mut env_sensor_dev.env_sensors {
+                        match sensor.read_temperature() {
+                            Some(temp) => {
+                                info!(
+                                    "{}: temperature: {} °C",
+                                    get_w1_device_name(sensor.ow_family, sensor.ow_address),
+                                    temp
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
+
             thread::sleep(Duration::from_micros(500));
         }
         info!("{}: Stopping thread", self.name);
