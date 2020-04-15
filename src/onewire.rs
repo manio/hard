@@ -19,6 +19,7 @@ pub const FAMILY_CODE_DS2413: u8 = 0x3a;
 pub const FAMILY_CODE_DS2408: u8 = 0x29;
 pub const FAMILY_CODE_DS18S20: u8 = 0x10;
 pub const FAMILY_CODE_DS18B20: u8 = 0x28;
+pub const FAMILY_CODE_DS2438: u8 = 0x26;
 
 pub const DS2408_INITIAL_STATE: u8 = 0xff;
 

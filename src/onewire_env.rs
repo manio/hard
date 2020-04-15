@@ -1,14 +1,17 @@
-use crate::onewire::{get_w1_device_name, FAMILY_CODE_DS18B20, FAMILY_CODE_DS18S20, W1_ROOT_PATH};
+use crate::onewire::{
+    get_w1_device_name, FAMILY_CODE_DS18B20, FAMILY_CODE_DS18S20, FAMILY_CODE_DS2438, W1_ROOT_PATH,
+};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{fs, thread};
 
-pub const TEMP_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between measuring temperature
+pub const TEMP_CHECK_INTERVAL_SECS: f32 = 300.0; //secs between measuring temperature
+pub const HUMID_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between measuring humidity
 
 pub struct EnvSensor {
     pub id_sensor: i32,
@@ -25,6 +28,10 @@ pub struct EnvSensor {
 impl EnvSensor {
     fn is_temp_sensor(&self) -> bool {
         self.ow_family == FAMILY_CODE_DS18B20 || self.ow_family == FAMILY_CODE_DS18S20
+    }
+
+    fn is_humid_sensor(&self) -> bool {
+        self.ow_family == FAMILY_CODE_DS2438
     }
 
     fn open(&mut self) {
@@ -109,6 +116,96 @@ impl EnvSensor {
 
         return None;
     }
+
+    fn read_humidity(&mut self) -> Option<(f32, f32)> {
+        let mut temp_data: Option<f32> = None;
+        let mut vdd_data: Option<f32> = None;
+        let mut vad_data: Option<f32> = None;
+
+        let temp_path = format!(
+            "{}/{}/temperature",
+            W1_ROOT_PATH,
+            get_w1_device_name(self.ow_family, self.ow_address)
+        );
+        let vdd_path = format!(
+            "{}/{}/vdd",
+            W1_ROOT_PATH,
+            get_w1_device_name(self.ow_family, self.ow_address)
+        );
+        let vad_path = format!(
+            "{}/{}/vad",
+            W1_ROOT_PATH,
+            get_w1_device_name(self.ow_family, self.ow_address)
+        );
+
+        match fs::read_to_string(temp_path) {
+            Ok(data) => {
+                temp_data = data.trim().parse::<f32>().ok();
+                debug!(
+                    "{}: temperature data: {:?}, parsed: {:?}",
+                    get_w1_device_name(self.ow_family, self.ow_address),
+                    data.trim(),
+                    temp_data,
+                );
+            }
+            Err(e) => {
+                error!(
+                    "{}: error reading: {:?}",
+                    get_w1_device_name(self.ow_family, self.ow_address),
+                    e,
+                );
+            }
+        }
+        match fs::read_to_string(vdd_path) {
+            Ok(data) => {
+                vdd_data = data.trim().parse::<f32>().ok();
+                debug!(
+                    "{}: vdd data: {:?}, parsed: {:?}",
+                    get_w1_device_name(self.ow_family, self.ow_address),
+                    data.trim(),
+                    vdd_data,
+                );
+            }
+            Err(e) => {
+                error!(
+                    "{}: error reading: {:?}",
+                    get_w1_device_name(self.ow_family, self.ow_address),
+                    e,
+                );
+            }
+        }
+        match fs::read_to_string(vad_path) {
+            Ok(data) => {
+                vad_data = data.trim().parse::<f32>().ok();
+                debug!(
+                    "{}: vad data: {:?}, parsed: {:?}",
+                    get_w1_device_name(self.ow_family, self.ow_address),
+                    data.trim(),
+                    vad_data,
+                );
+            }
+            Err(e) => {
+                error!(
+                    "{}: error reading: {:?}",
+                    get_w1_device_name(self.ow_family, self.ow_address),
+                    e,
+                );
+            }
+        }
+
+        if temp_data.is_some() && vdd_data.is_some() && vad_data.is_some() {
+            let temp = temp_data.unwrap() / 256.0;
+            let vdd = vdd_data.unwrap() / 100.0;
+            let vad = vad_data.unwrap() / 100.0;
+
+            //magic computation here, see the HIH-4000-003 pdf for details
+            let humid = (vad / vdd - 0.16) / 0.0062 / (1.0546 - 0.00216 * temp);
+
+            return Some((humid, temp));
+        }
+
+        return None;
+    }
 }
 
 pub struct EnvSensorDevices {
@@ -157,6 +254,7 @@ impl OneWireEnv {
     pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
         let mut last_temp_check = Instant::now();
+        let mut last_humid_check = Instant::now();
 
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
@@ -183,6 +281,35 @@ impl OneWireEnv {
                                         get_w1_device_name(sensor.ow_family, sensor.ow_address),
                                         sensor.name,
                                         temp,
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+
+            if last_humid_check.elapsed() > Duration::from_secs_f32(HUMID_CHECK_INTERVAL_SECS) {
+                last_humid_check = Instant::now();
+
+                debug!("measuring humidity...");
+                {
+                    let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
+
+                    //fixme: do we really need to clone this HashMap to use it below?
+                    let kinds_cloned = env_sensor_dev.kinds.clone();
+
+                    for sensor in &mut env_sensor_dev.env_sensors {
+                        if sensor.is_humid_sensor() {
+                            match sensor.read_humidity() {
+                                Some(humid) => {
+                                    info!(
+                                        "{}: {}: humidity: {} %RH, temperature: {} °C",
+                                        get_w1_device_name(sensor.ow_family, sensor.ow_address),
+                                        sensor.name,
+                                        humid.0,
+                                        humid.1,
                                     );
                                 }
                                 _ => {}
