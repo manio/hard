@@ -8,6 +8,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::ops::Add;
 use std::path::Path;
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
@@ -504,6 +505,18 @@ pub struct StateMachine {
 }
 
 impl StateMachine {
+    fn run_shell_command(cmd: String) {
+        info!("StateMachine: about to call external command: {:?}", cmd);
+        //we have a command and args in one string, so split it by space
+        let mut args: Vec<&str> = cmd.split(" ").collect();
+        let output = Command::new(args.remove(0))
+            .args(args)
+            .output()
+            .expect("Error calling script");
+        let result = String::from_utf8(output.stdout).unwrap();
+        info!("StateMachine: script call result: {}", result);
+    }
+
     /* all below hook functions are returning bool, which means:
     true - continue processing
     false - stop processing the event (don't turn the relays, etc) */
@@ -537,6 +550,22 @@ impl StateMachine {
                 }
             }
         }
+        //run a shell script for sensors tagged with "cmd:"
+        if sensor_on {
+            for tag in sensor_tags {
+                if tag.starts_with("cmd:") {
+                    let v: Vec<&str> = tag.split(":").collect();
+                    match v.get(1) {
+                        Some(&command) => {
+                            let mut cmd = command.to_string().clone();
+                            thread::spawn(move || StateMachine::run_shell_command(cmd));
+                        }
+                        _ => (),
+                    };
+                }
+            }
+        }
+
         true
     }
 
