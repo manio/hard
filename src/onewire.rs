@@ -10,6 +10,7 @@ use std::ops::Add;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -40,6 +41,11 @@ pub const YEELIGHT_DURATION_MS: u32 = 500; //duration of above effect
 
 pub const DAYLIGHT_SUN_DEGREE: f64 = 3.0; //sun elevation for day/night switching
 pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating sun position
+
+pub struct OneWireTask {
+    pub id_relay: i32,
+    pub duration: Option<Duration>,
+}
 
 pub fn get_w1_device_name(family_code: u8, address: u64) -> String {
     format!("{:02x}-{:012x}", family_code, address)
@@ -605,6 +611,7 @@ impl StateMachine {
 pub struct OneWire {
     pub name: String,
     pub transmitter: Sender<DbTask>,
+    pub ow_receiver: Receiver<OneWireTask>,
     pub sensor_devices: Arc<RwLock<SensorDevices>>,
     pub relay_devices: Arc<RwLock<RelayDevices>>,
 }
@@ -1138,6 +1145,18 @@ impl OneWire {
                             rb.save_state();
                         }
                     }
+                }
+
+                //checking for external relay tasks
+                match self.ow_receiver.try_recv() {
+                    Ok(t) => {
+                        debug!(
+                            "Received OneWireTask: id_relay: {:?} duration: {:?}",
+                            t.id_relay, t.duration
+                        );
+                        //todo
+                    }
+                    _ => (),
                 }
 
                 //checking for auto turn-off of necessary relays

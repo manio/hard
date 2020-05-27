@@ -1,11 +1,13 @@
 use crate::onewire::{
-    get_w1_device_name, FAMILY_CODE_DS18B20, FAMILY_CODE_DS18S20, FAMILY_CODE_DS2438, W1_ROOT_PATH,
+    get_w1_device_name, OneWireTask, FAMILY_CODE_DS18B20, FAMILY_CODE_DS18S20, FAMILY_CODE_DS2438,
+    W1_ROOT_PATH,
 };
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 use std::{fs, thread};
@@ -247,6 +249,7 @@ impl EnvSensorDevices {
 
 pub struct OneWireEnv {
     pub name: String,
+    pub ow_transmitter: Sender<OneWireTask>,
     pub env_sensor_devices: Arc<RwLock<EnvSensorDevices>>,
 }
 

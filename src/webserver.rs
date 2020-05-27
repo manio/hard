@@ -3,10 +3,13 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use crate::onewire::OneWireTask;
 use rocket::*;
+use std::sync::mpsc::Sender;
 
 pub struct WebServer {
     pub name: String,
+    pub ow_transmitter: Sender<OneWireTask>,
 }
 
 #[get("/hello")]
