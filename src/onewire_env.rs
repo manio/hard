@@ -14,6 +14,7 @@ use std::{fs, thread};
 
 pub const TEMP_CHECK_INTERVAL_SECS: f32 = 300.0; //secs between measuring temperature
 pub const HUMID_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between measuring humidity
+pub const HUMID_FAN_PROLONG_SECS: f32 = 1800.0; //30min prolonging for humidity fan
 
 pub struct EnvSensor {
     pub id_sensor: i32,
@@ -314,6 +315,41 @@ impl OneWireEnv {
                                         humid.0,
                                         humid.1,
                                     );
+                                    for tag in &sensor.tags {
+                                        if tag.starts_with("humid_threshold:") {
+                                            let v: Vec<&str> = tag.split(":").collect();
+                                            match v.get(1) {
+                                                Some(&float_string) => {
+                                                    match float_string.parse::<f32>() {
+                                                        Ok(threshold) => {
+                                                            if humid.0 > threshold {
+                                                                warn!(
+                                                                    "{}: {}: humidity: {} %RH is above {} %RH threshold, triggering associated relays...",
+                                                                    get_w1_device_name(sensor.ow_family, sensor.ow_address),
+                                                                    sensor.name,
+                                                                    humid.0,
+                                                                    threshold,
+                                                                );
+                                                                for id_relay in
+                                                                    &sensor.associated_relays
+                                                                {
+                                                                    let task = OneWireTask {
+                                                                        id_relay: *id_relay,
+                                                                        duration: Some(Duration::from_secs_f32(HUMID_FAN_PROLONG_SECS)),
+                                                                    };
+                                                                    self.ow_transmitter
+                                                                        .send(task)
+                                                                        .unwrap();
+                                                                }
+                                                            }
+                                                        }
+                                                        Err(_) => (),
+                                                    }
+                                                }
+                                                _ => (),
+                                            };
+                                        }
+                                    }
                                 }
                                 _ => {}
                             }
