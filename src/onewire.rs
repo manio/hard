@@ -42,6 +42,7 @@ pub const YEELIGHT_DURATION_MS: u32 = 500; //duration of above effect
 pub const DAYLIGHT_SUN_DEGREE: f64 = 3.0; //sun elevation for day/night switching
 pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating sun position
 
+#[derive(Clone)]
 pub struct OneWireTask {
     pub id_relay: i32,
     pub duration: Option<Duration>,
@@ -657,6 +658,8 @@ impl OneWire {
             bedroom_mode: false,
         };
 
+        let mut pending_tasks = vec![];
+
         //geo location for sun calculation
         let mut lat: f64 = 0.0;
         let mut lon: f64 = 0.0;
@@ -676,6 +679,19 @@ impl OneWire {
             if worker_cancel_flag.load(Ordering::SeqCst) {
                 debug!("Got terminate signal from main");
                 break;
+            }
+
+            //checking for external relay tasks
+            //fixme: read all tasks, not a single one at a call
+            match self.ow_receiver.try_recv() {
+                Ok(t) => {
+                    debug!(
+                        "Received OneWireTask: id_relay: {:?} duration: {:?}",
+                        t.id_relay, t.duration
+                    );
+                    pending_tasks.push(t);
+                }
+                _ => (),
             }
 
             debug!("doing stuff");
@@ -1147,16 +1163,157 @@ impl OneWire {
                     }
                 }
 
-                //checking for external relay tasks
-                match self.ow_receiver.try_recv() {
-                    Ok(t) => {
-                        debug!(
-                            "Received OneWireTask: id_relay: {:?} duration: {:?}",
-                            t.id_relay, t.duration
-                        );
-                        //todo
+                //checking for pending tasks
+                if !pending_tasks.is_empty() {
+                    for rb in &mut relay_dev.relay_boards {
+                        //we will be eventually computing new output byte for a relay board
+                        //so first of all get the base/previous value
+                        let mut new_state: u8 = match rb.new_value {
+                            Some(val) => val,
+                            None => rb.last_value.unwrap_or(DS2408_INITIAL_STATE),
+                        };
+
+                        //iterate all relays in the board
+                        for i in 0..=7 {
+                            match &mut rb.relay[i] {
+                                Some(relay) => {
+                                    let relay_tasks: Vec<OneWireTask> = pending_tasks
+                                        .clone()
+                                        .into_iter()
+                                        .filter(|t| t.id_relay == relay.id_relay)
+                                        .collect();
+                                    for t in &relay_tasks {
+                                        debug!(
+                                            "Processing OneWireTask: id_relay={}, duration={:?}",
+                                            t.id_relay, t.duration
+                                        );
+
+                                        //flip-flop protection for too fast state changes
+                                        let mut flipflop_block = false;
+                                        match relay.last_toggled {
+                                            Some(toggled) => {
+                                                if toggled.elapsed()
+                                                    < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
+                                                {
+                                                    flipflop_block = true;
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+
+                                        match t.duration {
+                                            Some(d) => {
+                                                //turn on or prolong
+                                                //checking if bit is set (relay is off)
+                                                if !relay.override_mode
+                                                    && new_state & (1 << i as u8) != 0
+                                                {
+                                                    if flipflop_block {
+                                                        warn!(
+                                                            "{}: {}: external flip-flop protection: PIR turn-on request ignored",
+                                                            get_w1_device_name(
+                                                                rb.ow_family,
+                                                                rb.ow_address
+                                                            ),
+                                                            relay.name,
+                                                        );
+                                                    } else {
+                                                        new_state = new_state & !(1 << i as u8);
+                                                        info!(
+                                                            "{}: external turning ON: {}: bit={} new state: {:#04x}",
+                                                            get_w1_device_name(
+                                                                rb.ow_family,
+                                                                rb.ow_address
+                                                            ),
+                                                            relay.name,
+                                                            i,
+                                                            new_state,
+                                                        );
+                                                        relay.last_toggled = Some(Instant::now());
+                                                        relay.stop_after = Some(d);
+                                                        rb.new_value = Some(new_state);
+                                                    }
+                                                } else {
+                                                    info!(
+                                                        "{}: external prolonging: {}: bit={}",
+                                                        get_w1_device_name(
+                                                            rb.ow_family,
+                                                            rb.ow_address
+                                                        ),
+                                                        relay.name,
+                                                        i,
+                                                    );
+
+                                                    let toggled_elapsed = relay
+                                                        .last_toggled
+                                                        .unwrap_or(Instant::now())
+                                                        .elapsed();
+                                                    if relay.override_mode {
+                                                        if toggled_elapsed
+                                                            > Duration::from_secs_f32(
+                                                                relay.switch_hold_secs
+                                                                    - DEFAULT_PIR_PROLONG_SECS,
+                                                            )
+                                                        {
+                                                            relay.stop_after =
+                                                                Some(toggled_elapsed.add(
+                                                                    Duration::from_secs_f32(
+                                                                        DEFAULT_PIR_PROLONG_SECS,
+                                                                    ),
+                                                                ));
+                                                        }
+                                                    } else {
+                                                        relay.stop_after =
+                                                            Some(toggled_elapsed.add(d));
+                                                    }
+                                                }
+                                            }
+                                            None => {
+                                                let on: bool = new_state & (1 << i as u8) == 0;
+                                                if on {
+                                                    if flipflop_block {
+                                                        warn!(
+                                                            "{}: {}: external flip-flop protection: turn-off toggle request ignored",
+                                                            get_w1_device_name(
+                                                                rb.ow_family,
+                                                                rb.ow_address
+                                                            ),
+                                                            relay.name,
+                                                        );
+                                                    } else {
+                                                        //set a bit -> turn off relay
+                                                        new_state = new_state | (1 << i as u8);
+                                                        info!(
+                                                            "{}: external turn-off: {}: bit={} new state: {:#04x}",
+                                                            get_w1_device_name(
+                                                                rb.ow_family,
+                                                                rb.ow_address
+                                                            ),
+                                                            relay.name,
+                                                            i,
+                                                            new_state,
+                                                        );
+                                                        relay.last_toggled = Some(Instant::now());
+                                                        relay.stop_after = None;
+                                                        relay.override_mode = false;
+                                                        rb.new_value = Some(new_state);
+                                                        self.increment_relay_counter(
+                                                            relay.id_relay,
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        //save output state when needed
+                        rb.save_state();
                     }
-                    _ => (),
+                    pending_tasks.clear();
                 }
 
                 //checking for auto turn-off of necessary relays
