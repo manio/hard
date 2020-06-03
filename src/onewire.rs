@@ -1,4 +1,5 @@
 use crate::database::{CommandCode, DbTask};
+use crate::ethlcd::{BeepMethod, EthLcd};
 use ini::Ini;
 use serde::ser::SerializeSeq;
 use serde::{Serialize, Serializer};
@@ -509,6 +510,7 @@ impl RelayDevices {
 pub struct StateMachine {
     pub name: String,
     pub bedroom_mode: bool,
+    pub ethlcd: Option<EthLcd>,
 }
 
 impl StateMachine {
@@ -651,11 +653,24 @@ impl OneWire {
             .unwrap_or_default();
     }
 
-    pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
+    pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>, ethlcd: Option<EthLcd>) {
         info!("{}: Starting thread", self.name);
+
+        //show ethlcd config if set
+        match &ethlcd {
+            Some(device) => {
+                info!(
+                    "{}: ethlcd beep device host defined as: {:?}",
+                    self.name, device.host
+                );
+            }
+            None => {}
+        }
+
         let mut state_machine = StateMachine {
             name: "statemachine".to_owned(),
             bedroom_mode: false,
+            ethlcd,
         };
 
         let mut pending_tasks = vec![];

@@ -10,6 +10,7 @@ extern crate ini;
 use self::ini::Ini;
 
 use crate::database::DbTask;
+use crate::ethlcd::EthLcd;
 use crate::onewire::OneWireTask;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -21,6 +22,7 @@ use std::thread;
 use std::time::Duration;
 
 mod database;
+mod ethlcd;
 mod onewire;
 mod onewire_env;
 mod webserver;
@@ -29,6 +31,12 @@ fn log_location() -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
     conf.section(Some("general".to_owned()))
         .and_then(|x| x.get("log").cloned())
+}
+
+fn ethlcd_hostname() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("ethlcd_host").cloned())
 }
 
 fn logging_init() {
@@ -106,6 +114,16 @@ fn main() {
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //database thread comm channel
     let (ow_tx, ow_rx): (Sender<OneWireTask>, Receiver<OneWireTask>) = mpsc::channel(); //onewire thread comm channel
 
+    //ethlcd struct
+    let ethlcd = match ethlcd_hostname() {
+        Some(hostname) => Some(EthLcd {
+            struct_name: "ethlcd".to_string(),
+            host: hostname,
+            in_progress: Arc::new(AtomicBool::new(false)),
+        }),
+        _ => None,
+    };
+
     //creating db thread
     let mut db = database::Database {
         name: "postgres".to_string(),
@@ -143,7 +161,7 @@ fn main() {
     let thread_builder = thread::Builder::new().name("onewire".into()); //thread name
     let thread_handler = thread_builder
         .spawn(move || {
-            onewire.worker(worker_cancel_flag);
+            onewire.worker(worker_cancel_flag, ethlcd);
         })
         .unwrap();
     threads.push(thread_handler);
