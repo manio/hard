@@ -559,9 +559,16 @@ impl StateMachine {
                 }
             }
         }
-        //run a shell script for sensors tagged with "cmd:"
         if sensor_on {
             for tag in sensor_tags {
+                //doorbell => make a beep using ethlcd device
+                if self.ethlcd.is_some() && tag == "doorbell" {
+                    self.ethlcd
+                        .as_mut()
+                        .unwrap()
+                        .async_beep(BeepMethod::DoorBell);
+                }
+                //run a shell script for sensors tagged with "cmd:"
                 if tag.starts_with("cmd:") {
                     let v: Vec<&str> = tag.split(":").collect();
                     match v.get(1) {
