@@ -40,6 +40,13 @@ fn ethlcd_hostname() -> Option<String> {
         .and_then(|x| x.get("ethlcd_host").cloned())
 }
 
+fn rfid_filepath() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("rfid_event_path").cloned())
+}
+//fixme: refactor 3 above functions
+
 fn logging_init() {
     let mut conf = Config::default();
     conf.time_format = Some("%F, %H:%M:%S%.3f");
@@ -196,18 +203,24 @@ fn main() {
         .unwrap();
     threads.push(thread_handler);
 
-    //creating rfid thread
-    let rfid = rfid::Rfid {
-        name: "rfid".to_string(),
+    //rfid thread
+    match rfid_filepath() {
+        Some(event_path) => {
+            let rfid = rfid::Rfid {
+                name: "rfid".to_string(),
+                event_path,
+            };
+            let worker_cancel_flag = cancel_flag.clone();
+            let thread_builder = thread::Builder::new().name("rfid".into()); //thread name
+            let thread_handler = thread_builder
+                .spawn(move || {
+                    rfid.worker(worker_cancel_flag);
+                })
+                .unwrap();
+            threads.push(thread_handler);
+        }
+        _ => {}
     };
-    let worker_cancel_flag = cancel_flag.clone();
-    let thread_builder = thread::Builder::new().name("rfid".into()); //thread name
-    let thread_handler = thread_builder
-        .spawn(move || {
-            rfid.worker(worker_cancel_flag);
-        })
-        .unwrap();
-    threads.push(thread_handler);
 
     debug!("Entering main loop...");
     loop {

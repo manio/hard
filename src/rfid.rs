@@ -5,6 +5,7 @@ use std::time::Duration;
 
 pub struct Rfid {
     pub name: String,
+    pub event_path: String,
 }
 
 impl Rfid {
