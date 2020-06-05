@@ -25,6 +25,7 @@ mod database;
 mod ethlcd;
 mod onewire;
 mod onewire_env;
+mod rfid;
 mod webserver;
 
 fn log_location() -> Option<String> {
@@ -191,6 +192,19 @@ fn main() {
     let thread_handler = thread_builder
         .spawn(move || {
             webserver.worker(worker_cancel_flag);
+        })
+        .unwrap();
+    threads.push(thread_handler);
+
+    //creating rfid thread
+    let rfid = rfid::Rfid {
+        name: "rfid".to_string(),
+    };
+    let worker_cancel_flag = cancel_flag.clone();
+    let thread_builder = thread::Builder::new().name("rfid".into()); //thread name
+    let thread_handler = thread_builder
+        .spawn(move || {
+            rfid.worker(worker_cancel_flag);
         })
         .unwrap();
     threads.push(thread_handler);
