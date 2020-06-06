@@ -358,7 +358,7 @@ impl OneWireEnv {
                 }
             }
 
-            thread::sleep(Duration::from_micros(500));
+            thread::sleep(Duration::from_millis(100));
         }
         info!("{}: Stopping thread", self.name);
     }
