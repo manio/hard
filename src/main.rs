@@ -25,6 +25,7 @@ mod database;
 mod ethlcd;
 mod onewire;
 mod onewire_env;
+mod rfid;
 mod webserver;
 
 fn log_location() -> Option<String> {
@@ -38,6 +39,13 @@ fn ethlcd_hostname() -> Option<String> {
     conf.section(Some("general".to_owned()))
         .and_then(|x| x.get("ethlcd_host").cloned())
 }
+
+fn rfid_filepath() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("rfid_event_path").cloned())
+}
+//fixme: refactor 3 above functions
 
 fn logging_init() {
     let mut conf = Config::default();
@@ -194,6 +202,25 @@ fn main() {
         })
         .unwrap();
     threads.push(thread_handler);
+
+    //rfid thread
+    match rfid_filepath() {
+        Some(event_path) => {
+            let rfid = rfid::Rfid {
+                name: "rfid".to_string(),
+                event_path,
+            };
+            let worker_cancel_flag = cancel_flag.clone();
+            let thread_builder = thread::Builder::new().name("rfid".into()); //thread name
+            let thread_handler = thread_builder
+                .spawn(move || {
+                    rfid.worker(worker_cancel_flag);
+                })
+                .unwrap();
+            threads.push(thread_handler);
+        }
+        _ => {}
+    };
 
     debug!("Entering main loop...");
     loop {
