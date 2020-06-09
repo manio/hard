@@ -510,6 +510,7 @@ impl RelayDevices {
 
 pub struct StateMachine {
     pub name: String,
+    pub alarm_armed: bool,
     pub bedroom_mode: bool,
     pub ethlcd: Option<EthLcd>,
     pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
@@ -700,6 +701,7 @@ impl OneWire {
 
         let mut state_machine = StateMachine {
             name: "statemachine".to_owned(),
+            alarm_armed: false,
             bedroom_mode: false,
             ethlcd,
             rfid_tags,
