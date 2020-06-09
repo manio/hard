@@ -1,13 +1,21 @@
 use evdev::Key::*;
 use evdev::KEY;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
+
+pub struct RfidTag {
+    pub id_tag: i32,
+    pub name: String,
+    pub tags: Vec<String>,
+    pub associated_relays: Vec<i32>,
+}
 
 pub struct Rfid {
     pub name: String,
     pub event_path: String,
+    pub rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
 }
 
 impl Rfid {
@@ -63,6 +71,10 @@ impl Rfid {
                         match tag_id.parse::<u32>() {
                             Ok(tag) => {
                                 info!("{}: got complete tag ID: {}", self.name, tag);
+
+                                //fixme: don't unwrap and keep read ID locally for a short while
+                                let mut rfid_pending_tags = self.rfid_pending_tags.write().unwrap();
+                                rfid_pending_tags.push(tag);
                             }
                             Err(e) => {
                                 error!("{}: error parsing tag ID {:?}: {:?}", self.name, tag_id, e);

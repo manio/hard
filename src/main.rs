@@ -12,6 +12,7 @@ use self::ini::Ini;
 use crate::database::DbTask;
 use crate::ethlcd::EthLcd;
 use crate::onewire::OneWireTask;
+use crate::rfid::RfidTag;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -116,9 +117,13 @@ fn main() {
         kinds: HashMap::new(),
         env_sensors: vec![],
     };
+    let rfid_tags: Vec<RfidTag> = vec![];
+    let rfid_pending_tags: Vec<u32> = vec![];
     let onewire_sensor_devices = Arc::new(RwLock::new(sensor_devices));
     let onewire_relay_devices = Arc::new(RwLock::new(relay_devices));
     let onewire_env_sensor_devices = Arc::new(RwLock::new(env_sensor_devices));
+    let onewire_rfid_tags = Arc::new(RwLock::new(rfid_tags));
+    let onewire_rfid_pending_tags = Arc::new(RwLock::new(rfid_pending_tags));
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //database thread comm channel
     let (ow_tx, ow_rx): (Sender<OneWireTask>, Receiver<OneWireTask>) = mpsc::channel(); //onewire thread comm channel
 
@@ -144,6 +149,7 @@ fn main() {
         sensor_devices: onewire_sensor_devices.clone(),
         relay_devices: onewire_relay_devices.clone(),
         env_sensor_devices: onewire_env_sensor_devices.clone(),
+        rfid_tags: onewire_rfid_tags.clone(),
         sensor_counters: Default::default(),
         relay_counters: Default::default(),
         yeelight_counters: Default::default(),
@@ -167,9 +173,15 @@ fn main() {
     };
     let worker_cancel_flag = cancel_flag.clone();
     let thread_builder = thread::Builder::new().name("onewire".into()); //thread name
+    let rfid_pending_tags_cloned = onewire_rfid_pending_tags.clone();
     let thread_handler = thread_builder
         .spawn(move || {
-            onewire.worker(worker_cancel_flag, ethlcd);
+            onewire.worker(
+                worker_cancel_flag,
+                ethlcd,
+                onewire_rfid_tags.clone(),
+                rfid_pending_tags_cloned,
+            );
         })
         .unwrap();
     threads.push(thread_handler);
@@ -209,6 +221,7 @@ fn main() {
             let rfid = rfid::Rfid {
                 name: "rfid".to_string(),
                 event_path,
+                rfid_pending_tags: onewire_rfid_pending_tags.clone(),
             };
             let worker_cancel_flag = cancel_flag.clone();
             let thread_builder = thread::Builder::new().name("rfid".into()); //thread name

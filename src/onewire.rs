@@ -1,5 +1,6 @@
 use crate::database::{CommandCode, DbTask};
 use crate::ethlcd::{BeepMethod, EthLcd};
+use crate::rfid::RfidTag;
 use ini::Ini;
 use serde::ser::SerializeSeq;
 use serde::{Serialize, Serializer};
@@ -511,6 +512,8 @@ pub struct StateMachine {
     pub name: String,
     pub bedroom_mode: bool,
     pub ethlcd: Option<EthLcd>,
+    pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
+    pub rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
 }
 
 impl StateMachine {
@@ -616,6 +619,21 @@ impl StateMachine {
     ) -> bool {
         true
     }
+
+    fn process_rfid_tags(&mut self) {
+        let mut rfid_tags = self.rfid_tags.read().unwrap();
+        let mut rfid_pending_tags = self.rfid_pending_tags.write().unwrap();
+        if !rfid_pending_tags.is_empty() {
+            //todo
+            for tag in rfid_tags.iter() {
+                debug!("{}: rfid_tag: {:?}", self.name, tag.name);
+            }
+            for id in rfid_pending_tags.iter() {
+                debug!("{}: rfid_pending_tags: {:?}", self.name, id);
+            }
+            rfid_pending_tags.clear();
+        }
+    }
 }
 
 pub struct OneWire {
@@ -660,7 +678,13 @@ impl OneWire {
             .unwrap_or_default();
     }
 
-    pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>, ethlcd: Option<EthLcd>) {
+    pub fn worker(
+        &self,
+        worker_cancel_flag: Arc<AtomicBool>,
+        ethlcd: Option<EthLcd>,
+        rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
+        rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
+    ) {
         info!("{}: Starting thread", self.name);
 
         //show ethlcd config if set
@@ -678,6 +702,8 @@ impl OneWire {
             name: "statemachine".to_owned(),
             bedroom_mode: false,
             ethlcd,
+            rfid_tags,
+            rfid_pending_tags,
         };
 
         let mut pending_tasks = vec![];
@@ -1184,6 +1210,9 @@ impl OneWire {
                         }
                     }
                 }
+
+                //process rfid pending tags, if any
+                state_machine.process_rfid_tags();
 
                 //checking for pending tasks
                 if !pending_tasks.is_empty() {

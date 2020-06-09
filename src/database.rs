@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::onewire;
 use crate::onewire_env;
+use crate::rfid::RfidTag;
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::thread;
@@ -27,6 +28,7 @@ pub struct Database {
     pub sensor_devices: Arc<RwLock<onewire::SensorDevices>>,
     pub relay_devices: Arc<RwLock<onewire::RelayDevices>>,
     pub env_sensor_devices: Arc<RwLock<onewire_env::EnvSensorDevices>>,
+    pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
     pub sensor_counters: HashMap<i32, u32>,
     pub relay_counters: HashMap<i32, u32>,
     pub yeelight_counters: HashMap<i32, u32>,
@@ -62,6 +64,7 @@ impl Database {
                 let mut sensor_dev = self.sensor_devices.write().unwrap();
                 let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
                 let mut relay_dev = self.relay_devices.write().unwrap();
+                let mut rfid_tag = self.rfid_tags.write().unwrap();
 
                 info!("{}: Loading data from view 'kinds'...", self.name);
                 sensor_dev.kinds.clear();
@@ -203,6 +206,26 @@ impl Database {
                         pir_all_day,
                         tags,
                     );
+                }
+
+                info!("{}: Loading data from view 'rfid_tags'...", self.name);
+                rfid_tag.clear();
+                for row in client.query("select * from rfid_tags", &[]).unwrap() {
+                    let id_tag: i32 = row.get("id_tag");
+                    let name: String = row.get("name");
+                    let tags: Vec<String> = row.try_get("tags").unwrap_or(vec![]);
+                    let relay_agg: Vec<i32> = row.try_get("relay_agg").unwrap_or(vec![]);
+                    debug!(
+                        "Got RFID tag: id_tag={} name={:?}, tags={:?}, relay_agg={:?}",
+                        id_tag, name, tags, relay_agg
+                    );
+                    let new_tag = RfidTag {
+                        id_tag,
+                        name,
+                        tags,
+                        associated_relays: relay_agg,
+                    };
+                    rfid_tag.push(new_tag);
                 }
             }
             None => {
