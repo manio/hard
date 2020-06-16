@@ -44,8 +44,14 @@ pub const YEELIGHT_DURATION_MS: u32 = 500; //duration of above effect
 pub const DAYLIGHT_SUN_DEGREE: f64 = 3.0; //sun elevation for day/night switching
 pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating sun position
 
+#[derive(Clone, Debug)]
+pub enum TaskCommand {
+    TurnOnProlong,
+    TurnOff,
+}
 #[derive(Clone)]
 pub struct OneWireTask {
+    pub command: TaskCommand,
     pub id_relay: i32,
     pub duration: Option<Duration>,
 }
@@ -1237,8 +1243,8 @@ impl OneWire {
                                         .collect();
                                     for t in &relay_tasks {
                                         debug!(
-                                            "Processing OneWireTask: id_relay={}, duration={:?}",
-                                            t.id_relay, t.duration
+                                            "Processing OneWireTask: command={:?} id_relay={}, duration={:?}",
+                                            t.command, t.id_relay, t.duration
                                         );
 
                                         //flip-flop protection for too fast state changes
@@ -1254,9 +1260,31 @@ impl OneWire {
                                             _ => {}
                                         }
 
-                                        match t.duration {
-                                            Some(d) => {
+                                        match t.command {
+                                            TaskCommand::TurnOnProlong => {
                                                 //turn on or prolong
+
+                                                let d = match t.duration {
+                                                    Some(d) => {
+                                                        //if we have a duration passed, use it
+                                                        d
+                                                    }
+                                                    None => {
+                                                        //otherwise take a switch_hold_secs or pir_hold_secs
+                                                        if relay.switch_hold_secs
+                                                            != DEFAULT_SWITCH_HOLD_SECS
+                                                        {
+                                                            Duration::from_secs_f32(
+                                                                relay.switch_hold_secs,
+                                                            )
+                                                        } else {
+                                                            Duration::from_secs_f32(
+                                                                relay.pir_hold_secs,
+                                                            )
+                                                        }
+                                                    }
+                                                };
+
                                                 //checking if bit is set (relay is off)
                                                 if !relay.override_mode
                                                     && new_state & (1 << i as u8) != 0
@@ -1321,7 +1349,7 @@ impl OneWire {
                                                     }
                                                 }
                                             }
-                                            None => {
+                                            TaskCommand::TurnOff => {
                                                 let on: bool = new_state & (1 << i as u8) == 0;
                                                 if on {
                                                     if flipflop_block {

@@ -1,6 +1,6 @@
 use crate::onewire::{
-    get_w1_device_name, OneWireTask, FAMILY_CODE_DS18B20, FAMILY_CODE_DS18S20, FAMILY_CODE_DS2438,
-    W1_ROOT_PATH,
+    get_w1_device_name, OneWireTask, TaskCommand, FAMILY_CODE_DS18B20, FAMILY_CODE_DS18S20,
+    FAMILY_CODE_DS2438, W1_ROOT_PATH,
 };
 use std::collections::HashMap;
 use std::fs::File;
@@ -334,6 +334,7 @@ impl OneWireEnv {
                                                                     &sensor.associated_relays
                                                                 {
                                                                     let task = OneWireTask {
+                                                                        command: TaskCommand::TurnOnProlong,
                                                                         id_relay: *id_relay,
                                                                         duration: Some(Duration::from_secs_f32(HUMID_FAN_PROLONG_SECS)),
                                                                     };
