@@ -901,7 +901,7 @@ impl OneWire {
                                                                                             } else {
                                                                                                 new_state = new_state & !(1 << i as u8);
                                                                                                 info!(
-                                                                                                    "{}: Turning ON: {}: bit={} new state: {:#04x}",
+                                                                                                    "{}: Turning ON: {}: bit={} new state: {:#04x} duration={:?}",
                                                                                                     get_w1_device_name(
                                                                                                         rb.ow_family,
                                                                                                         rb.ow_address
@@ -909,6 +909,7 @@ impl OneWire {
                                                                                                     relay.name,
                                                                                                     i,
                                                                                                     new_state,
+                                                                                                    Duration::from_secs_f32(relay.pir_hold_secs),
                                                                                                 );
                                                                                                 relay.stop_after = Some(Duration::from_secs_f32(relay.pir_hold_secs));
                                                                                                 rb.new_value = Some(new_state);
@@ -949,7 +950,7 @@ impl OneWire {
                                                                                         //switching is toggling current state to the opposite:
                                                                                         new_state = new_state ^ (1 << i as u8);
                                                                                         info!(
-                                                                                            "{}: Switch toggle: {}: bit={} new state: {:#04x}",
+                                                                                            "{}: Switch toggle: {}: bit={} new state: {:#04x} duration={:?}",
                                                                                             get_w1_device_name(
                                                                                                 rb.ow_family,
                                                                                                 rb.ow_address
@@ -957,6 +958,7 @@ impl OneWire {
                                                                                             relay.name,
                                                                                             i,
                                                                                             new_state,
+                                                                                            Duration::from_secs_f32(relay.switch_hold_secs),
                                                                                         );
                                                                                         relay.override_mode = true;
                                                                                         relay.stop_after = Some(Duration::from_secs_f32(relay.switch_hold_secs));
@@ -1041,8 +1043,9 @@ impl OneWire {
                                                                                     );
                                                                                 } else {
                                                                                     info!(
-                                                                                        "Yeelight: Turning ON: {}",
+                                                                                        "Yeelight: Turning ON: {}: duration={:?}",
                                                                                         yeelight.name,
+                                                                                        Duration::from_secs_f32(yeelight.pir_hold_secs),
                                                                                     );
                                                                                     yeelight.stop_after = Some(Duration::from_secs_f32(yeelight.pir_hold_secs));
                                                                                     yeelight.turn_on_off(true);
@@ -1076,8 +1079,9 @@ impl OneWire {
                                                                         } else {
                                                                             //switching is toggling current state to the opposite:
                                                                             info!(
-                                                                                "Yeelight: Switch toggle: {}",
+                                                                                "Yeelight: Switch toggle: {}: duration={:?}",
                                                                                 yeelight.name,
+                                                                                Duration::from_secs_f32(yeelight.switch_hold_secs),
                                                                             );
                                                                             yeelight
                                                                                 .override_mode =
@@ -1307,7 +1311,7 @@ impl OneWire {
                                                     } else {
                                                         new_state = new_state & !(1 << i as u8);
                                                         info!(
-                                                            "{}: external turning ON: {}: bit={} new state: {:#04x}",
+                                                            "{}: external turning ON: {}: bit={} new state: {:#04x} duration={:?}",
                                                             get_w1_device_name(
                                                                 rb.ow_family,
                                                                 rb.ow_address
@@ -1315,6 +1319,7 @@ impl OneWire {
                                                             relay.name,
                                                             i,
                                                             new_state,
+                                                            d,
                                                         );
                                                         relay.last_toggled = Some(Instant::now());
                                                         relay.stop_after = Some(d);
