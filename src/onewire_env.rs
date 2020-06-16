@@ -14,7 +14,6 @@ use std::{fs, thread};
 
 pub const TEMP_CHECK_INTERVAL_SECS: f32 = 300.0; //secs between measuring temperature
 pub const HUMID_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between measuring humidity
-pub const HUMID_FAN_PROLONG_SECS: f32 = 1800.0; //30min prolonging for humidity fan
 
 pub struct EnvSensor {
     pub id_sensor: i32,
@@ -336,7 +335,7 @@ impl OneWireEnv {
                                                                     let task = OneWireTask {
                                                                         command: TaskCommand::TurnOnProlong,
                                                                         id_relay: *id_relay,
-                                                                        duration: Some(Duration::from_secs_f32(HUMID_FAN_PROLONG_SECS)),
+                                                                        duration: None, //take default
                                                                     };
                                                                     self.ow_transmitter
                                                                         .send(task)
