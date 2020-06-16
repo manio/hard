@@ -544,12 +544,10 @@ impl StateMachine {
         &mut self,
         sensor_kind_code: &str,
         sensor_name: &str,
-        sensor_on: bool,
+        mut sensor_on: bool,
         sensor_tags: &Vec<String>,
         night: bool,
     ) -> bool {
-        let on_off = if sensor_on { "on" } else { "off" };
-
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
             for tag in sensor_tags {
                 match tag.as_ref() {
@@ -572,28 +570,38 @@ impl StateMachine {
                 }
             }
         }
-        if sensor_on {
-            for tag in sensor_tags {
-                //doorbell => make a beep using ethlcd device
-                if self.ethlcd.is_some() && tag == "doorbell" {
-                    self.ethlcd
-                        .as_mut()
-                        .unwrap()
-                        .async_beep(BeepMethod::DoorBell);
-                }
-                //run a shell script for sensors tagged with "cmd:"
-                if tag.starts_with("cmd:") {
-                    let v: Vec<&str> = tag.split(":").collect();
-                    match v.get(1) {
-                        Some(&command) => {
-                            let mut cmd = command.to_string().clone();
-                            cmd = str::replace(&cmd, "%name%", sensor_name);
-                            cmd = str::replace(&cmd, "%state%", on_off);
-                            thread::spawn(move || StateMachine::run_shell_command(cmd));
-                        }
-                        _ => (),
-                    };
-                }
+        for tag in sensor_tags {
+            //check for inverted sensor logic
+            if tag.contains("invert_state") {
+                sensor_on = !sensor_on;
+            }
+            // by default we trigger on sensor_on but if the tag contains
+            // the 'all_changes' modifier, then trigger on all changes
+            if !(sensor_on || tag.contains("all_changes")) {
+                continue;
+            }
+
+            //run a shell script for sensors tagged with "cmd:"
+            if tag.starts_with("cmd") {
+                let on_off = if sensor_on { "on" } else { "off" };
+
+                let v: Vec<&str> = tag.split(":").collect();
+                match v.get(1) {
+                    Some(&command) => {
+                        let mut cmd = command.to_string().clone();
+                        cmd = str::replace(&cmd, "%name%", sensor_name);
+                        cmd = str::replace(&cmd, "%state%", on_off);
+                        thread::spawn(move || StateMachine::run_shell_command(cmd));
+                    }
+                    _ => (),
+                };
+            }
+            //doorbell => make a beep using ethlcd device
+            else if self.ethlcd.is_some() && tag == "doorbell" {
+                self.ethlcd
+                    .as_mut()
+                    .unwrap()
+                    .async_beep(BeepMethod::DoorBell);
             }
         }
 
