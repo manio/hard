@@ -543,10 +543,13 @@ impl StateMachine {
     fn sensor_hook(
         &mut self,
         sensor_kind_code: &str,
+        sensor_name: &str,
         sensor_on: bool,
         sensor_tags: &Vec<String>,
         night: bool,
     ) -> bool {
+        let on_off = if sensor_on { "on" } else { "off" };
+
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
             for tag in sensor_tags {
                 match tag.as_ref() {
@@ -584,6 +587,8 @@ impl StateMachine {
                     match v.get(1) {
                         Some(&command) => {
                             let mut cmd = command.to_string().clone();
+                            cmd = str::replace(&cmd, "%name%", sensor_name);
+                            cmd = str::replace(&cmd, "%state%", on_off);
                             thread::spawn(move || StateMachine::run_shell_command(cmd));
                         }
                         _ => (),
@@ -799,6 +804,7 @@ impl OneWire {
                                                     let stop_processing = !state_machine
                                                         .sensor_hook(
                                                             &kind_code,
+                                                            &sensor.name,
                                                             on,
                                                             &sensor.tags,
                                                             night,
