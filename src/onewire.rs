@@ -632,16 +632,25 @@ impl StateMachine {
         true
     }
 
-    fn process_rfid_tags(&mut self) {
+    fn process_rfid_tags(&mut self, pending_tasks: &mut Vec<OneWireTask>) {
         let mut rfid_tags = self.rfid_tags.read().unwrap();
         let mut rfid_pending_tags = self.rfid_pending_tags.write().unwrap();
         if !rfid_pending_tags.is_empty() {
             //todo
-            for tag in rfid_tags.iter() {
-                debug!("{}: rfid_tag: {:?}", self.name, tag.name);
-            }
             for id in rfid_pending_tags.iter() {
                 debug!("{}: rfid_pending_tags: {:?}", self.name, id);
+                for tag in rfid_tags.iter().find(|&x| x.id_tag as u32 == *id) {
+                    info!("{}: matched rfid_tag: {:?}", self.name, tag.name);
+                    for id_relay in &tag.associated_relays {
+                        info!("{}: associated relay: {:?}", self.name, id_relay);
+                        let new_task = OneWireTask {
+                            command: TaskCommand::TurnOnProlong,
+                            id_relay: *id_relay,
+                            duration: None,
+                        };
+                        pending_tasks.push(new_task);
+                    }
+                }
             }
             rfid_pending_tags.clear();
         }
@@ -1230,7 +1239,7 @@ impl OneWire {
                 }
 
                 //process rfid pending tags, if any
-                state_machine.process_rfid_tags();
+                state_machine.process_rfid_tags(&mut pending_tasks);
 
                 //checking for pending tasks
                 if !pending_tasks.is_empty() {
