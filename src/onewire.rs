@@ -32,6 +32,7 @@ pub const DEFAULT_PIR_HOLD_SECS: f32 = 120.0; //2min for PIR sensors
 pub const DEFAULT_SWITCH_HOLD_SECS: f32 = 3600.0; //1hour for wall-switches
 pub const DEFAULT_PIR_PROLONG_SECS: f32 = 900.0; //15min prolonging in override_mode
 pub const MIN_TOGGLE_DELAY_SECS: f32 = 1.0; //1sec flip-flop protection: minimum delay between toggles
+pub const ENTRY_LIGHT_PROLONG_SECS: f32 = 600.0; //10min prolonging for entry lights
 
 pub static W1_ROOT_PATH: &str = "/sys/bus/w1/devices";
 
@@ -610,6 +611,19 @@ impl StateMachine {
                                         _ => {}
                                     }
 
+                                    if night {
+                                        info!("{}: turning on entry lights...", self.name);
+                                        let new_task = OneWireTask {
+                                            command: TaskCommand::TurnOnProlong,
+                                            id_relay: None,
+                                            tag_group: Some("entry_light".to_owned()),
+                                            duration: Some(Duration::from_secs_f32(
+                                                ENTRY_LIGHT_PROLONG_SECS,
+                                            )),
+                                        };
+                                        pending_tasks.push(new_task);
+                                    }
+
                                     return false; //stop further processing this sensor
                                 }
                             }
@@ -694,7 +708,7 @@ impl StateMachine {
         true
     }
 
-    fn process_rfid_tags(&mut self, pending_tasks: &mut Vec<OneWireTask>) {
+    fn process_rfid_tags(&mut self, pending_tasks: &mut Vec<OneWireTask>, night: bool) {
         let mut rfid_tags = self.rfid_tags.read().unwrap();
         let mut rfid_pending_tags = self.rfid_pending_tags.write().unwrap();
         if !rfid_pending_tags.is_empty() {
@@ -730,6 +744,22 @@ impl StateMachine {
                                                         ethlcd.async_beep(BeepMethod::Confirmation)
                                                     }
                                                     _ => {}
+                                                }
+
+                                                if night {
+                                                    info!(
+                                                        "{}: turning on entry lights...",
+                                                        self.name
+                                                    );
+                                                    let new_task = OneWireTask {
+                                                        command: TaskCommand::TurnOnProlong,
+                                                        id_relay: None,
+                                                        tag_group: Some("entry_light".to_owned()),
+                                                        duration: Some(Duration::from_secs_f32(
+                                                            ENTRY_LIGHT_PROLONG_SECS,
+                                                        )),
+                                                    };
+                                                    pending_tasks.push(new_task);
                                                 }
                                             }
                                             Err(e) => {
@@ -1352,7 +1382,7 @@ impl OneWire {
                 }
 
                 //process rfid pending tags, if any
-                state_machine.process_rfid_tags(&mut pending_tasks);
+                state_machine.process_rfid_tags(&mut pending_tasks, night);
 
                 //checking for pending tasks
                 if !pending_tasks.is_empty() {
