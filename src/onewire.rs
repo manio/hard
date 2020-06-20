@@ -518,6 +518,9 @@ pub struct StateMachine {
     pub name: String,
     pub alarm_armed: bool,
     pub bedroom_mode: bool,
+    pub wicket_gate_started: Option<Instant>,
+    pub wicket_gate_delay: Option<Duration>,
+    pub wicket_gate_relays: Vec<i32>,
     pub ethlcd: Option<EthLcd>,
     pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
     pub rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
@@ -547,6 +550,7 @@ impl StateMachine {
         sensor_on: bool,
         sensor_tags: &Vec<String>,
         night: bool,
+        pending_tasks: &mut Vec<OneWireTask>,
     ) -> bool {
         //bedroom mode handling during the night
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
@@ -565,6 +569,49 @@ impl StateMachine {
                         if self.bedroom_mode {
                             info!("{}: bedroom mode disabled", self.name);
                             self.bedroom_mode = false;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        //wicket gate mode opening
+        //doing it in separate block as this tag has to be processed with highest priority
+        for tag in sensor_tags.iter().find(|&x| x.starts_with("wicket_gate")) {
+            //shadow the outer variable
+            let mut sensor_on = sensor_on;
+            //check for inverted sensor logic
+            if tag.contains("invert_state") {
+                sensor_on = !sensor_on;
+            }
+            if sensor_on {
+                match self.wicket_gate_started {
+                    Some(started) => {
+                        match self.wicket_gate_delay {
+                            Some(delay) => {
+                                self.wicket_gate_started = None; //processed => clear
+                                if started.elapsed() < delay {
+                                    info!("{}: opening wicket gate", self.name);
+                                    for id_relay in &self.wicket_gate_relays {
+                                        let new_task = OneWireTask {
+                                            command: TaskCommand::TurnOnProlong,
+                                            id_relay: *id_relay,
+                                            duration: None,
+                                        };
+                                        pending_tasks.push(new_task);
+                                    }
+
+                                    //confirmation beep
+                                    match self.ethlcd.as_mut() {
+                                        Some(ethlcd) => ethlcd.async_beep(BeepMethod::Confirmation),
+                                        _ => {}
+                                    }
+
+                                    return false; //stop further processing this sensor
+                                }
+                            }
+                            _ => {}
                         }
                     }
                     _ => {}
@@ -652,16 +699,62 @@ impl StateMachine {
             //todo
             for id in rfid_pending_tags.iter() {
                 debug!("{}: rfid_pending_tags: {:?}", self.name, id);
-                for tag in rfid_tags.iter().find(|&x| x.id_tag as u32 == *id) {
-                    info!("{}: matched rfid_tag: {:?}", self.name, tag.name);
-                    for id_relay in &tag.associated_relays {
-                        info!("{}: associated relay: {:?}", self.name, id_relay);
-                        let new_task = OneWireTask {
-                            command: TaskCommand::TurnOnProlong,
-                            id_relay: *id_relay,
-                            duration: None,
-                        };
-                        pending_tasks.push(new_task);
+                for rfid_tag in rfid_tags.iter().find(|&x| x.id_tag as u32 == *id) {
+                    info!("{}: matched rfid_tag: {:?}", self.name, rfid_tag.name);
+
+                    if !rfid_tag.tags.is_empty() {
+                        //handle tags
+                        for tag in &rfid_tag.tags {
+                            //handle wicket_gate mode
+                            if tag.starts_with("wicket_gate") {
+                                let v: Vec<&str> = tag.split(":").collect();
+                                match v.get(1) {
+                                    Some(&delay_str) => {
+                                        match delay_str.parse::<f32>() {
+                                            Ok(val) => {
+                                                let delay = Duration::from_secs_f32(val);
+                                                self.wicket_gate_started = Some(Instant::now());
+                                                self.wicket_gate_delay = Some(delay);
+                                                self.wicket_gate_relays =
+                                                    rfid_tag.associated_relays.clone();
+                                                info!(
+                                                    "{}: enabling wicket gate mode for {:?}",
+                                                    self.name, delay
+                                                );
+
+                                                //confirmation beep
+                                                match self.ethlcd.as_mut() {
+                                                    Some(ethlcd) => {
+                                                        ethlcd.async_beep(BeepMethod::Confirmation)
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!("{}: delay parse error: {:?}", self.name, e);
+                                            }
+                                        }
+                                    }
+                                    None => {
+                                        error!(
+                                            "{}: wicket gate mode: missing delay parameter",
+                                            self.name
+                                        );
+                                    }
+                                };
+                            }
+                        }
+                    } else {
+                        //turn on associated relay
+                        for id_relay in &rfid_tag.associated_relays {
+                            info!("{}: associated relay: {:?}", self.name, id_relay);
+                            let new_task = OneWireTask {
+                                command: TaskCommand::TurnOnProlong,
+                                id_relay: *id_relay,
+                                duration: None,
+                            };
+                            pending_tasks.push(new_task);
+                        }
                     }
                 }
             }
@@ -736,6 +829,9 @@ impl OneWire {
             name: "statemachine".to_owned(),
             alarm_armed: false,
             bedroom_mode: false,
+            wicket_gate_started: None,
+            wicket_gate_delay: None,
+            wicket_gate_relays: vec![],
             ethlcd,
             rfid_tags,
             rfid_pending_tags,
@@ -830,6 +926,7 @@ impl OneWire {
                                                             on,
                                                             &sensor.tags,
                                                             night,
+                                                            &mut pending_tasks,
                                                         );
                                                     info!(
                                                         "{}: [{} {} {}]: {:#04x} on: {}, stop_processing: {}",
