@@ -52,7 +52,8 @@ pub enum TaskCommand {
 #[derive(Clone)]
 pub struct OneWireTask {
     pub command: TaskCommand,
-    pub id_relay: i32,
+    pub id_relay: Option<i32>,
+    pub tag_group: Option<String>,
     pub duration: Option<Duration>,
 }
 
@@ -596,7 +597,8 @@ impl StateMachine {
                                     for id_relay in &self.wicket_gate_relays {
                                         let new_task = OneWireTask {
                                             command: TaskCommand::TurnOnProlong,
-                                            id_relay: *id_relay,
+                                            id_relay: Some(*id_relay),
+                                            tag_group: None,
                                             duration: None,
                                         };
                                         pending_tasks.push(new_task);
@@ -750,7 +752,8 @@ impl StateMachine {
                             info!("{}: associated relay: {:?}", self.name, id_relay);
                             let new_task = OneWireTask {
                                 command: TaskCommand::TurnOnProlong,
-                                id_relay: *id_relay,
+                                id_relay: Some(*id_relay),
+                                tag_group: None,
                                 duration: None,
                             };
                             pending_tasks.push(new_task);
@@ -865,8 +868,8 @@ impl OneWire {
             match self.ow_receiver.try_recv() {
                 Ok(t) => {
                     debug!(
-                        "Received OneWireTask: id_relay: {:?} duration: {:?}",
-                        t.id_relay, t.duration
+                        "Received OneWireTask: id_relay: {:?}, tag_group: {:?}, duration: {:?}",
+                        t.id_relay, t.tag_group, t.duration
                     );
                     pending_tasks.push(t);
                 }
@@ -1368,12 +1371,18 @@ impl OneWire {
                                     let relay_tasks: Vec<OneWireTask> = pending_tasks
                                         .clone()
                                         .into_iter()
-                                        .filter(|t| t.id_relay == relay.id_relay)
+                                        .filter(|t| match t.id_relay {
+                                            Some(id) => relay.id_relay == id,
+                                            None => match &t.tag_group {
+                                                Some(tag_name) => relay.tags.contains(tag_name),
+                                                None => false,
+                                            },
+                                        })
                                         .collect();
                                     for t in &relay_tasks {
                                         debug!(
-                                            "Processing OneWireTask: command={:?} id_relay={}, duration={:?}",
-                                            t.command, t.id_relay, t.duration
+                                            "Processing OneWireTask: command={:?}, matched id_relay={}, duration={:?}",
+                                            t.command, relay.id_relay, t.duration
                                         );
 
                                         //flip-flop protection for too fast state changes

@@ -21,7 +21,8 @@ pub fn hello() -> &'static str {
 pub fn fan_on(ow_transmitter: State<Arc<Mutex<Sender<OneWireTask>>>>) -> String {
     let task = OneWireTask {
         command: TaskCommand::TurnOnProlong,
-        id_relay: 14,
+        id_relay: Some(14),
+        tag_group: None,
         duration: Some(Duration::from_secs(60 * 5)),
     };
     let trans = ow_transmitter.lock().unwrap();
@@ -34,7 +35,8 @@ pub fn fan_on(ow_transmitter: State<Arc<Mutex<Sender<OneWireTask>>>>) -> String 
 pub fn fan_off(ow_transmitter: State<Arc<Mutex<Sender<OneWireTask>>>>) -> String {
     let task = OneWireTask {
         command: TaskCommand::TurnOff,
-        id_relay: 14,
+        id_relay: Some(14),
+        tag_group: None,
         duration: None,
     };
     let trans = ow_transmitter.lock().unwrap();

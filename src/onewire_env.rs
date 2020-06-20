@@ -334,7 +334,8 @@ impl OneWireEnv {
                                                                 {
                                                                     let task = OneWireTask {
                                                                         command: TaskCommand::TurnOnProlong,
-                                                                        id_relay: *id_relay,
+                                                                        id_relay: Some(*id_relay),
+                                                                        tag_group: None,
                                                                         duration: None, //take default
                                                                     };
                                                                     self.ow_transmitter
