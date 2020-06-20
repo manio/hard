@@ -544,10 +544,11 @@ impl StateMachine {
         &mut self,
         sensor_kind_code: &str,
         sensor_name: &str,
-        mut sensor_on: bool,
+        sensor_on: bool,
         sensor_tags: &Vec<String>,
         night: bool,
     ) -> bool {
+        //bedroom mode handling during the night
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
             for tag in sensor_tags {
                 match tag.as_ref() {
@@ -570,7 +571,11 @@ impl StateMachine {
                 }
             }
         }
+
+        //processing other tags
         for tag in sensor_tags {
+            //shadow the outer variable
+            let mut sensor_on = sensor_on;
             //check for inverted sensor logic
             if tag.contains("invert_state") {
                 sensor_on = !sensor_on;
@@ -597,7 +602,7 @@ impl StateMachine {
                 };
             }
             //doorbell => make a beep using ethlcd device
-            else if self.ethlcd.is_some() && tag == "doorbell" {
+            else if self.ethlcd.is_some() && tag.starts_with("doorbell") {
                 self.ethlcd
                     .as_mut()
                     .unwrap()
