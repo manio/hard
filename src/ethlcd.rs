@@ -107,7 +107,7 @@ impl EthLcd {
                         EthLcd::beep_sequence(&struct_name, &hostname, &stream, 400, 300, 3, 0);
                     }
                     BeepMethod::Confirmation => {
-                        //todo
+                        EthLcd::beep_sequence(&struct_name, &hostname, &stream, 70, 70, 3, 0);
                     }
                 }
             }
