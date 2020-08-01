@@ -531,15 +531,18 @@ pub struct StateMachine {
 
 impl StateMachine {
     fn run_shell_command(cmd: String) {
-        info!("StateMachine: about to call external command: {:?}", cmd);
-        //we have a command and args in one string, so split it by space
-        let mut args: Vec<&str> = cmd.split(" ").collect();
+        info!("StateMachine: about to call external command: {}", cmd);
+        //we have a command and args in one string, split it by first space
+        let mut args: Vec<&str> = cmd.splitn(2, " ").collect();
         let output = Command::new(args.remove(0))
             .args(args)
             .output()
             .expect("Error calling script");
-        let result = String::from_utf8(output.stdout).unwrap();
-        info!("StateMachine: script call result: {}", result);
+        info!(
+            "StateMachine: script call result:\nstdout: {:?}\nstderr: {:?}",
+            String::from_utf8(output.stdout),
+            String::from_utf8(output.stderr)
+        );
     }
 
     /* all below hook functions are returning bool, which means:
