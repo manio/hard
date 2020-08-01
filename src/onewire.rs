@@ -48,6 +48,7 @@ pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating su
 #[derive(Clone, Debug)]
 pub enum TaskCommand {
     TurnOnProlong,
+    TurnOnProlongNight,
     TurnOff,
 }
 #[derive(Clone)]
@@ -614,7 +615,7 @@ impl StateMachine {
                                     if night {
                                         info!("{}: turning on entry lights...", self.name);
                                         let new_task = OneWireTask {
-                                            command: TaskCommand::TurnOnProlong,
+                                            command: TaskCommand::TurnOnProlongNight,
                                             id_relay: None,
                                             tag_group: Some("entry_light".to_owned()),
                                             duration: Some(Duration::from_secs_f32(
@@ -752,7 +753,7 @@ impl StateMachine {
                                                         self.name
                                                     );
                                                     let new_task = OneWireTask {
-                                                        command: TaskCommand::TurnOnProlong,
+                                                        command: TaskCommand::TurnOnProlongNight,
                                                         id_relay: None,
                                                         tag_group: Some("entry_light".to_owned()),
                                                         duration: Some(Duration::from_secs_f32(
@@ -896,12 +897,23 @@ impl OneWire {
             //checking for external relay tasks
             //fixme: read all tasks, not a single one at a call
             match self.ow_receiver.try_recv() {
-                Ok(t) => {
+                Ok(mut t) => {
                     debug!(
                         "Received OneWireTask: id_relay: {:?}, tag_group: {:?}, duration: {:?}",
                         t.id_relay, t.tag_group, t.duration
                     );
-                    pending_tasks.push(t);
+                    match t.command {
+                        TaskCommand::TurnOnProlongNight => {
+                            if night {
+                                //change to normal prolong command
+                                t.command = TaskCommand::TurnOnProlong;
+                                pending_tasks.push(t);
+                            }
+                        }
+                        _ => {
+                            pending_tasks.push(t);
+                        }
+                    }
                 }
                 _ => (),
             }
@@ -1553,6 +1565,7 @@ impl OneWire {
                                                     }
                                                 }
                                             }
+                                            _ => {}
                                         }
                                     }
                                 }
