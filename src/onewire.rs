@@ -662,6 +662,7 @@ impl StateMachine {
                     Some(&command) => {
                         let mut cmd = command.to_string().clone();
                         cmd = str::replace(&cmd, "%name%", sensor_name);
+                        cmd = str::replace(&cmd, "%colon%", ":");
                         cmd = str::replace(&cmd, "%state%", on_off);
                         thread::spawn(move || StateMachine::run_shell_command(cmd));
                     }
