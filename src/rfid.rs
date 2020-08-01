@@ -19,6 +19,15 @@ pub struct Rfid {
 }
 
 impl Rfid {
+    pub fn push_tag_upstream(&self, tag: u32) -> bool {
+        match self.rfid_pending_tags.write() {
+            Ok(mut rfid_pending_tags) => {
+                rfid_pending_tags.push(tag);
+                true
+            }
+            Err(e) => false,
+        }
+    }
     pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
         info!("{}: Starting thread", self.name);
 
@@ -27,6 +36,7 @@ impl Rfid {
         info!("{}: device {:?} opened", self.name, d.name());
 
         let mut tag_id: String = "".to_string();
+        let mut local_pending_tags: Vec<u32> = vec![];
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
                 debug!("Got terminate signal from main");
@@ -72,9 +82,10 @@ impl Rfid {
                             Ok(tag) => {
                                 info!("{}: got complete tag ID: {}", self.name, tag);
 
-                                //fixme: don't unwrap and keep read ID locally for a short while
-                                let mut rfid_pending_tags = self.rfid_pending_tags.write().unwrap();
-                                rfid_pending_tags.push(tag);
+                                if !self.push_tag_upstream(tag) {
+                                    //unable to obtain a write lock, keep it locally
+                                    local_pending_tags.push(tag);
+                                }
                             }
                             Err(e) => {
                                 error!("{}: error parsing tag ID {:?}: {:?}", self.name, tag_id, e);
@@ -85,6 +96,19 @@ impl Rfid {
                         tag_id.push(val);
                     }
                 }
+            }
+
+            //if there was a problem to push a tag, try again now
+            match local_pending_tags.pop() {
+                Some(tag) => {
+                    if !self.push_tag_upstream(tag) {
+                        //still unable to obtain a write lock, re-push
+                        local_pending_tags.push(tag);
+                    } else {
+                        warn!("{}: delayed process of tag ID: {}", self.name, tag);
+                    }
+                }
+                _ => {}
             }
 
             thread::sleep(Duration::from_millis(30));
