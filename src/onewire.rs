@@ -1095,8 +1095,8 @@ impl OneWire {
 
                                                                                             let toggled_elapsed = relay.last_toggled.unwrap_or(Instant::now()).elapsed();
                                                                                             if relay.override_mode {
-                                                                                                if relay.switch_hold_secs > DEFAULT_PIR_PROLONG_SECS && toggled_elapsed > Duration::from_secs_f32(relay.switch_hold_secs - DEFAULT_PIR_PROLONG_SECS) {
-                                                                                                    relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(DEFAULT_PIR_PROLONG_SECS)));
+                                                                                                if relay.switch_hold_secs > relay.pir_hold_secs && toggled_elapsed > Duration::from_secs_f32(relay.switch_hold_secs - relay.pir_hold_secs) {
+                                                                                                    relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(relay.pir_hold_secs)));
                                                                                                 }
                                                                                             } else {
                                                                                                 relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(relay.pir_hold_secs)));
