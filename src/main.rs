@@ -13,6 +13,7 @@ use crate::database::DbTask;
 use crate::ethlcd::EthLcd;
 use crate::onewire::OneWireTask;
 use crate::rfid::RfidTag;
+use futures::future::join_all;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,12 +22,14 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
+use tokio::task;
 
 mod database;
 mod ethlcd;
 mod onewire;
 mod onewire_env;
 mod rfid;
+mod skymax;
 mod webserver;
 
 fn log_location() -> Option<String> {
@@ -46,7 +49,13 @@ fn rfid_filepath() -> Option<String> {
     conf.section(Some("general".to_owned()))
         .and_then(|x| x.get("rfid_event_path").cloned())
 }
-//fixme: refactor 3 above functions
+
+fn skymax_filepath() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("skymax_device").cloned())
+}
+//fixme: refactor 4 above functions
 
 fn logging_init() {
     let mut conf = Config::default();
@@ -90,7 +99,8 @@ fn logging_init() {
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     logging_init();
     info!("Welcome to hard (home automation rust-daemon)");
 
@@ -104,6 +114,7 @@ fn main() {
 
     //common thread stuff
     let mut threads = vec![];
+    let mut futures = vec![];
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let sensor_devices = onewire::SensorDevices {
         kinds: HashMap::new(),
@@ -235,6 +246,20 @@ fn main() {
         _ => {}
     };
 
+    //skymax async task
+    match skymax_filepath() {
+        Some(path) => {
+            let worker_cancel_flag = cancel_flag.clone();
+            let skymax = skymax::Skymax {
+                name: "skymax".to_string(),
+                device_path: "/dev/zero".to_string(),
+            };
+            let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
+            futures.push(skymax_future);
+        }
+        _ => {}
+    }
+
     debug!("Entering main loop...");
     loop {
         if !running.load(Ordering::SeqCst) {
@@ -253,5 +278,8 @@ fn main() {
         // Wait for the thread to finish. Returns a result.
         let _ = t.join();
     }
+    //wait for skymax tokio async task
+    let _ = join_all(futures).await;
+
     info!("Done, exiting");
 }
