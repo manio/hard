@@ -21,3 +21,4 @@ sun = "0.2"
 evdev = "0.10.1"
 futures = "0.3"
 tokio = { version = "0.3.5", features = ["full"] }
+crc16 = "0.4.0"
