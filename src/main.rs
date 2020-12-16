@@ -250,9 +250,11 @@ async fn main() {
     match skymax_filepath() {
         Some(path) => {
             let worker_cancel_flag = cancel_flag.clone();
-            let skymax = skymax::Skymax {
+            let mut skymax = skymax::Skymax {
                 name: "skymax".to_string(),
-                device_path: "/dev/zero".to_string(),
+                device_path: path,
+                poll_ok: 0,
+                poll_errors: 0,
             };
             let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
             futures.push(skymax_future);
