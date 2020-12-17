@@ -15,6 +15,78 @@ pub const SKYMAX_POLL_INTERVAL_SECS: f32 = 10.0; //secs between polling
 // async contexts needs some extra restrictions
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+pub struct GeneralStatusParameters {
+    voltage_grid: Option<f32>,
+    freq_grid: Option<f32>,
+    voltage_out: Option<f32>,
+    freq_out: Option<f32>,
+    load_va: Option<u16>,
+    load_watt: Option<u16>,
+    load_percent: Option<u8>,
+    voltage_bus: Option<u16>,
+    voltage_batt: Option<f32>,
+    batt_charge_current: Option<u16>,
+    batt_capacity: Option<u8>,
+    temp_heatsink: Option<u16>,
+    pv_input_current: Option<u16>,
+    pv_input_voltage: Option<f32>,
+    scc_voltage: Option<f32>,
+    batt_discharge_current: Option<u32>,
+    device_status: Option<u8>,
+    batt_voltage_offset_for_fans_on: Option<u8>,
+    eeprom_version: Option<u8>,
+    pv_charging_power: Option<u32>,
+    device_status2: Option<u8>,
+}
+
+impl GeneralStatusParameters {
+    fn binary_to_u8(input: String) -> Option<u8> {
+        let mut out_byte: u8 = 0;
+        for (index, bit) in input.chars().rev().enumerate() {
+            if bit == '1' {
+                out_byte |= (1 << index);
+            } else if bit != '0' {
+                return None;
+            }
+        }
+        Some(out_byte)
+    }
+
+    pub fn new(data: String) -> Option<Self> {
+        //split input elements by space
+        let mut elements: Vec<_> = data.split(" ").collect();
+
+        //we need at least 21 values
+        if elements.len() < 21 {
+            return None;
+        }
+
+        Some(Self {
+            voltage_grid: elements.remove(0).parse().ok(),
+            freq_grid: elements.remove(0).parse().ok(),
+            voltage_out: elements.remove(0).parse().ok(),
+            freq_out: elements.remove(0).parse().ok(),
+            load_va: elements.remove(0).parse().ok(),
+            load_watt: elements.remove(0).parse().ok(),
+            load_percent: elements.remove(0).parse().ok(),
+            voltage_bus: elements.remove(0).parse().ok(),
+            voltage_batt: elements.remove(0).parse().ok(),
+            batt_charge_current: elements.remove(0).parse().ok(),
+            batt_capacity: elements.remove(0).parse().ok(),
+            temp_heatsink: elements.remove(0).parse().ok(),
+            pv_input_current: elements.remove(0).parse().ok(),
+            pv_input_voltage: elements.remove(0).parse().ok(),
+            scc_voltage: elements.remove(0).parse().ok(),
+            batt_discharge_current: elements.remove(0).parse().ok(),
+            device_status: GeneralStatusParameters::binary_to_u8(elements.remove(0).to_string()),
+            batt_voltage_offset_for_fans_on: elements.remove(0).parse().ok(),
+            eeprom_version: elements.remove(0).parse().ok(),
+            pv_charging_power: elements.remove(0).parse().ok(),
+            device_status2: GeneralStatusParameters::binary_to_u8(elements.remove(0).to_string()),
+        })
+    }
+}
+
 pub struct Skymax {
     pub name: String,
     pub device_path: String,
@@ -176,8 +248,18 @@ impl Skymax {
                             file = new_handle;
                             match buffer {
                                 Some(data) => {
-                                    //todo
-                                    info!("{}: got QPIGS result: {}", self.name, data);
+                                    let params = GeneralStatusParameters::new(data.clone());
+                                    match params {
+                                        Some(parameters) => {
+                                            //todo
+                                        }
+                                        _ => {
+                                            error!(
+                                                "{}: QPIGS: error parsing values for data: {:02X?}",
+                                                self.name, data
+                                            );
+                                        }
+                                    }
                                 }
                                 None => {
                                     break;
