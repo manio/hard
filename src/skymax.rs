@@ -236,6 +236,41 @@ impl fmt::Display for GeneralStatusParameters {
     }
 }
 
+pub struct InverterMode {
+    pub last_change: Instant,
+    pub mode: char,
+}
+
+impl InverterMode {
+    fn get_mode_description(mode: char) -> &'static str {
+        match mode {
+            'P' => "Power On Mode",
+            'S' => "Standby Mode",
+            'L' => "Line Mode",
+            'B' => "Battery Mode",
+            'F' => "Fault Mode",
+            'H' => "Power Saving Mode",
+            _ => "Unknown",
+        }
+    }
+
+    fn set_new_mode(&mut self, current_mode: char, thread_name: &String) -> bool {
+        if self.mode != current_mode {
+            warn!(
+                "{}: inverter mode changed from {:?} to {:?} after {:?}",
+                thread_name,
+                InverterMode::get_mode_description(self.mode),
+                InverterMode::get_mode_description(current_mode),
+                self.last_change.elapsed()
+            );
+            self.mode = current_mode;
+            self.last_change = Instant::now();
+            return true;
+        }
+        false
+    }
+}
+
 pub struct Skymax {
     pub name: String,
     pub device_path: String,
@@ -368,6 +403,7 @@ impl Skymax {
         info!("{}: Starting task", self.name);
         let mut poll_interval = Instant::now();
         let mut terminated = false;
+        let mut inverter_mode: Option<InverterMode> = None;
 
         loop {
             if terminated || worker_cancel_flag.load(Ordering::SeqCst) {
@@ -420,10 +456,32 @@ impl Skymax {
                                 self.query_inverter(file, "QMOD".into(), 5).await?;
                             file = new_handle;
                             match buffer {
-                                Some(data) => {
-                                    //todo
-                                    info!("{}: got QMOD result: {}", self.name, data);
-                                }
+                                Some(data) => match data.chars().nth(0) {
+                                    Some(current_mode) => {
+                                        inverter_mode = Some(match inverter_mode {
+                                            Some(mut inv_mode) => {
+                                                inv_mode.set_new_mode(current_mode, &self.name);
+                                                inv_mode
+                                            }
+                                            None => {
+                                                info!(
+                                                    "{}: inverter mode: {}",
+                                                    self.name,
+                                                    InverterMode::get_mode_description(
+                                                        current_mode
+                                                    )
+                                                );
+                                                InverterMode {
+                                                    last_change: Instant::now(),
+                                                    mode: current_mode,
+                                                }
+                                            }
+                                        });
+                                    }
+                                    None => {
+                                        error!("{}: error parsing mode (no input data)", self.name);
+                                    }
+                                },
                                 None => {
                                     break;
                                 }
