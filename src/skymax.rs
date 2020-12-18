@@ -79,7 +79,12 @@ impl GeneralStatusParameters {
             scc_voltage: elements.remove(0).parse().ok(),
             batt_discharge_current: elements.remove(0).parse().ok(),
             device_status: GeneralStatusParameters::binary_to_u8(elements.remove(0).to_string()),
-            batt_voltage_offset_for_fans_on: elements.remove(0).parse().ok(),
+            batt_voltage_offset_for_fans_on: elements
+                .remove(0)
+                .to_string()
+                .parse()
+                .map(|v: u8| v * 10)
+                .ok(), //unit is *10mV
             eeprom_version: elements.remove(0).parse().ok(),
             pv_charging_power: elements.remove(0).parse().ok(),
             device_status2: GeneralStatusParameters::binary_to_u8(elements.remove(0).to_string()),
