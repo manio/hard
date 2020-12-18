@@ -22,3 +22,6 @@ evdev = "0.10.1"
 futures = "0.3"
 tokio = { version = "0.3.5", features = ["full"] }
 crc16 = "0.4.0"
+influxdb = { version = "0.3.0", features = ["derive"] }
+chrono = { version = "0.4.11", features = ["serde"] }
+tokio-compat-02 = "0.1"
