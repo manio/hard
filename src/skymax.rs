@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use crc16::*;
-use futures::io::Error;
 use influxdb::{Client, InfluxDbWriteable};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
