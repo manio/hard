@@ -57,7 +57,7 @@ impl GeneralStatusParameters {
         let mut out_byte: u8 = 0;
         for (index, bit) in input.chars().rev().enumerate() {
             if bit == '1' {
-                out_byte |= (1 << index);
+                out_byte |= 1 << index;
             } else if bit != '0' {
                 return None;
             }
