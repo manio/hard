@@ -1,5 +1,6 @@
 use crc16::*;
 use futures::io::Error;
+use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -10,6 +11,13 @@ use tokio::prelude::*;
 use tokio::time::timeout;
 
 pub const SKYMAX_POLL_INTERVAL_SECS: f32 = 10.0; //secs between polling
+
+//masks for status bits
+pub const STATUS1_AC_CHARGE: u8 = 1 << 0;
+pub const STATUS1_SCC_CHARGE: u8 = 1 << 1;
+pub const STATUS1_LOAD: u8 = 1 << 4;
+pub const STATUS2_FLOATING_CHARGE: u8 = 1 << 2;
+pub const STATUS2_SWITCH: u8 = 1 << 1;
 
 // Just a generic Result type to ease error handling for us. Errors in multithreaded
 // async contexts needs some extra restrictions
@@ -89,6 +97,142 @@ impl GeneralStatusParameters {
             pv_charging_power: elements.remove(0).parse().ok(),
             device_status2: GeneralStatusParameters::binary_to_u8(elements.remove(0).to_string()),
         })
+    }
+}
+
+impl fmt::Display for GeneralStatusParameters {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "GeneralStatusParameters (QPIGS):\n")?;
+        write!(
+            f,
+            "------------------------------------------------------------------------\n"
+        )?;
+
+        if self.voltage_grid.is_some() {
+            write!(f, "  AC Grid voltage: {:?} V\n", self.voltage_grid.unwrap())?;
+        };
+        if self.freq_grid.is_some() {
+            write!(f, "  AC Grid frequency: {:?} Hz\n", self.freq_grid.unwrap())?;
+        };
+        if self.voltage_out.is_some() {
+            write!(f, "  AC out voltage: {:?} V\n", self.voltage_out.unwrap())?;
+        };
+        if self.freq_out.is_some() {
+            write!(f, "  AC out frequency: {:?} Hz\n", self.freq_out.unwrap())?;
+        };
+        if self.load_percent.is_some() {
+            write!(f, "  Load: {:?} %\n", self.load_percent.unwrap())?;
+        };
+        if self.load_watt.is_some() {
+            write!(f, "  Load: {:?} W\n", self.load_watt.unwrap())?;
+        };
+        if self.load_va.is_some() {
+            write!(f, "  Load: {:?} VA\n", self.load_va.unwrap())?;
+        };
+        if self.voltage_bus.is_some() {
+            write!(f, "  Bus voltage: {:?} V\n", self.voltage_bus.unwrap())?;
+        };
+        if self.pv_input_voltage.is_some() {
+            write!(
+                f,
+                "  PV input voltage: {:?} V\n",
+                self.pv_input_voltage.unwrap()
+            )?;
+        };
+        if self.pv_input_current.is_some() {
+            write!(
+                f,
+                "  PV input current: {:?} A\n",
+                self.pv_input_current.unwrap()
+            )?;
+        };
+        if self.scc_voltage.is_some() {
+            write!(f, "  SCC voltage: {:?} V\n", self.scc_voltage.unwrap())?;
+        };
+        if self.temp_heatsink.is_some() {
+            write!(
+                f,
+                "  Heatsink temperature: {:?} °C\n",
+                self.temp_heatsink.unwrap()
+            )?;
+        };
+        if self.batt_capacity.is_some() {
+            write!(
+                f,
+                "  Battery capacity: {:?} %\n",
+                self.batt_capacity.unwrap()
+            )?;
+        };
+        if self.voltage_batt.is_some() {
+            write!(f, "  Battery voltage: {:?} V\n", self.voltage_batt.unwrap())?;
+        };
+        if self.batt_charge_current.is_some() {
+            write!(
+                f,
+                "  Battery charge current: {:?} A\n",
+                self.batt_charge_current.unwrap()
+            )?;
+        };
+        if self.batt_discharge_current.is_some() {
+            write!(
+                f,
+                "  Battery discharge current: {:?} A\n",
+                self.batt_discharge_current.unwrap()
+            )?;
+        };
+        match self.device_status {
+            Some(status) => {
+                write!(f, "  Device status: {:08b}\n", status)?;
+                write!(
+                    f,
+                    "    |- Load status on: {:?}\n",
+                    status & STATUS1_LOAD != 0
+                )?;
+                write!(
+                    f,
+                    "    |- SCC charge on: {:?}\n",
+                    status & STATUS1_SCC_CHARGE != 0
+                )?;
+                write!(
+                    f,
+                    "    |- AC charge on: {:?}\n",
+                    status & STATUS1_AC_CHARGE != 0
+                )?;
+            }
+            None => (),
+        };
+
+        if self.batt_voltage_offset_for_fans_on.is_some() {
+            write!(
+                f,
+                "  Battery voltage offset for fans on: {:?} mV\n",
+                self.batt_voltage_offset_for_fans_on.unwrap()
+            )?;
+        };
+        if self.eeprom_version.is_some() {
+            write!(f, "  EEPROM version: {:?}\n", self.eeprom_version.unwrap())?;
+        };
+        if self.pv_charging_power.is_some() {
+            write!(
+                f,
+                "  PV charging power: {:?} W\n",
+                self.pv_charging_power.unwrap()
+            )?;
+        };
+        match self.device_status2 {
+            Some(status) => {
+                write!(f, "  Device status2: {:03b}\n", status)?;
+                write!(
+                    f,
+                    "    |- Charging to floating mode: {:?}\n",
+                    status & STATUS2_FLOATING_CHARGE != 0
+                )?;
+                write!(f, "    |- Switch on: {:?}\n", status & STATUS2_SWITCH != 0)?;
+            }
+            None => (),
+        };
+
+        Ok(())
     }
 }
 
@@ -256,7 +400,7 @@ impl Skymax {
                                     let params = GeneralStatusParameters::new(data.clone());
                                     match params {
                                         Some(parameters) => {
-                                            //todo
+                                            debug!("{}: {}", self.name, parameters);
                                         }
                                         _ => {
                                             error!(
