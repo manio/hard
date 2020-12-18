@@ -1,5 +1,7 @@
+use chrono::{DateTime, Utc};
 use crc16::*;
 use futures::io::Error;
+use influxdb::{Client, InfluxDbWriteable};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -9,6 +11,7 @@ use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::prelude::*;
 use tokio::time::timeout;
+use tokio_compat_02::FutureExt;
 
 pub const SKYMAX_POLL_INTERVAL_SECS: f32 = 10.0; //secs between polling
 
@@ -23,7 +26,9 @@ pub const STATUS2_SWITCH: u8 = 1 << 1;
 // async contexts needs some extra restrictions
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+#[derive(Clone, InfluxDbWriteable)]
 pub struct GeneralStatusParameters {
+    time: DateTime<Utc>,
     voltage_grid: Option<f32>,
     freq_grid: Option<f32>,
     voltage_out: Option<f32>,
@@ -70,6 +75,7 @@ impl GeneralStatusParameters {
         }
 
         Some(Self {
+            time: Utc::now(),
             voltage_grid: elements.remove(0).parse().ok(),
             freq_grid: elements.remove(0).parse().ok(),
             voltage_out: elements.remove(0).parse().ok(),
@@ -97,6 +103,25 @@ impl GeneralStatusParameters {
             pv_charging_power: elements.remove(0).parse().ok(),
             device_status2: GeneralStatusParameters::binary_to_u8(elements.remove(0).to_string()),
         })
+    }
+
+    async fn save_to_influxdb(&self, influxdb_url: &String, thread_name: &String) -> Result<()> {
+        // connect to influxdb
+        let client = Client::new(influxdb_url, "skymax");
+
+        match client
+            .query(&self.clone().into_query("status_params"))
+            .await
+        {
+            Ok(msg) => {
+                debug!("{}: influxdb write success: {:?}", thread_name, msg);
+            }
+            Err(e) => {
+                error!("{}: influxdb write error: {:?}", thread_name, e);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -276,6 +301,7 @@ pub struct Skymax {
     pub device_path: String,
     pub poll_ok: u64,
     pub poll_errors: u64,
+    pub influxdb_url: Option<String>,
 }
 
 impl Skymax {
@@ -437,6 +463,19 @@ impl Skymax {
                                     match params {
                                         Some(parameters) => {
                                             debug!("{}: {}", self.name, parameters);
+
+                                            //write data to influxdb if configured
+                                            match &self.influxdb_url {
+                                                Some(url) => {
+                                                    // By calling compat on the async function, everything inside it is able
+                                                    // to use Tokio 0.2 features.
+                                                    let _ = parameters
+                                                        .save_to_influxdb(url, &self.name)
+                                                        .compat()
+                                                        .await;
+                                                }
+                                                None => (),
+                                            }
                                         }
                                         _ => {
                                             error!(
