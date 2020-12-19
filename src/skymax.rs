@@ -13,6 +13,7 @@ use tokio::time::timeout;
 use tokio_compat_02::FutureExt;
 
 pub const SKYMAX_POLL_INTERVAL_SECS: f32 = 10.0; //secs between polling
+pub const SKYMAX_STATS_DUMP_INTERVAL_SECS: f32 = 3600.0; //secs between showing stats
 
 //masks for status bits
 pub const STATUS1_AC_CHARGE: u8 = 1 << 0;
@@ -427,6 +428,7 @@ impl Skymax {
     pub async fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
         info!("{}: Starting task", self.name);
         let mut poll_interval = Instant::now();
+        let mut stats_interval = Instant::now();
         let mut terminated = false;
         let mut inverter_mode: Option<InverterMode> = None;
 
@@ -445,6 +447,16 @@ impl Skymax {
                             debug!("{}: Got terminate signal from main", self.name);
                             terminated = true;
                             break;
+                        }
+
+                        if stats_interval.elapsed()
+                            > Duration::from_secs_f32(SKYMAX_STATS_DUMP_INTERVAL_SECS)
+                        {
+                            stats_interval = Instant::now();
+                            info!(
+                                "{}: 📊 inverter query statistics: ok: {}, errors: {}",
+                                self.name, self.poll_ok, self.poll_errors
+                            );
                         }
 
                         if poll_interval.elapsed()
