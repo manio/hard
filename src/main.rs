@@ -21,7 +21,7 @@ use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::task;
 
 mod database;
@@ -107,6 +107,7 @@ fn logging_init() {
 
 #[tokio::main]
 async fn main() {
+    let started = Instant::now();
     logging_init();
     info!("Welcome to hard (home automation rust-daemon)");
 
@@ -285,5 +286,8 @@ async fn main() {
     //wait for tokio async tasks
     let _ = join_all(futures).await;
 
-    info!("Done, exiting");
+    info!(
+        "🚩 hard terminated, daemon running time: {:?}",
+        started.elapsed()
+    );
 }
