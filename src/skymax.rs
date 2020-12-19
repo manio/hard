@@ -392,7 +392,7 @@ impl Skymax {
                             match Skymax::verify_input_data(buffer) {
                                 Ok(data) => {
                                     self.poll_ok = self.poll_ok + 1;
-                                    info!(
+                                    debug!(
                                         "{}: read {} bytes [⏱  {} ms]: {:?}, ok: {}, errors: {}",
                                         self.name,
                                         n,
