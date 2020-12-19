@@ -218,19 +218,14 @@ async fn main() {
         .unwrap();
     threads.push(thread_handler);
 
-    //creating webserver thread
-    let webserver = webserver::WebServer {
+    //creating webserver task
+    let mut webserver = webserver::WebServer {
         name: "webserver".to_string(),
         ow_transmitter: ow_tx,
     };
     let worker_cancel_flag = cancel_flag.clone();
-    let thread_builder = thread::Builder::new().name("webserver".into()); //thread name
-    let thread_handler = thread_builder
-        .spawn(move || {
-            webserver.worker(worker_cancel_flag);
-        })
-        .unwrap();
-    threads.push(thread_handler);
+    let webserver_future = task::spawn(async move { webserver.worker(worker_cancel_flag).await });
+    futures.push(webserver_future);
 
     //rfid thread
     match rfid_filepath() {
@@ -287,7 +282,7 @@ async fn main() {
         // Wait for the thread to finish. Returns a result.
         let _ = t.join();
     }
-    //wait for skymax tokio async task
+    //wait for tokio async tasks
     let _ = join_all(futures).await;
 
     info!("Done, exiting");
