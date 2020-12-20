@@ -1215,7 +1215,6 @@ impl OneWire {
                                                                                         "Yeelight: 💡 Turning ON: {}: duration={:?}",
                                                                                         yeelight.name,
                                                                                         format_duration(Duration::from_secs_f32(yeelight.pir_hold_secs)).to_string(),
-
                                                                                     );
                                                                                     yeelight.stop_after = Some(Duration::from_secs_f32(yeelight.pir_hold_secs));
                                                                                     yeelight.turn_on_off(true);
