@@ -217,7 +217,7 @@ impl RelayBoard {
             Some(file) => match self.new_value {
                 Some(val) => {
                     info!(
-                        "{}: saving output byte: {:#04x}",
+                        "{}: 💾 saving output byte: {:#04x}",
                         get_w1_device_name(self.ow_family, self.ow_address),
                         val
                     );
@@ -565,7 +565,7 @@ impl StateMachine {
                 match tag.as_ref() {
                     "bedroom_enable" => {
                         return if !self.bedroom_mode {
-                            info!("{}: bedroom mode enabled", self.name);
+                            info!("{}: bedroom mode enabled 🛌💤", self.name);
                             self.bedroom_mode = true;
                             true //allow single turn-on
                         } else {
@@ -574,7 +574,7 @@ impl StateMachine {
                     }
                     "bedroom_disable" => {
                         if self.bedroom_mode {
-                            info!("{}: bedroom mode disabled", self.name);
+                            info!("{}: bedroom mode disabled 🛏", self.name);
                             self.bedroom_mode = false;
                         }
                     }
@@ -722,7 +722,7 @@ impl StateMachine {
             for id in rfid_pending_tags.iter() {
                 debug!("{}: rfid_pending_tags: {:?}", self.name, id);
                 for rfid_tag in rfid_tags.iter().find(|&x| x.id_tag as u32 == *id) {
-                    info!("{}: matched rfid_tag: {:?}", self.name, rfid_tag.name);
+                    info!("{}: 🆔 matched rfid_tag: {:?}", self.name, rfid_tag.name);
 
                     if !rfid_tag.tags.is_empty() {
                         //handle tags
@@ -740,7 +740,7 @@ impl StateMachine {
                                                 self.wicket_gate_relays =
                                                     rfid_tag.associated_relays.clone();
                                                 info!(
-                                                    "{}: enabling wicket gate mode for {:?}",
+                                                    "{}: ⏹ enabling wicket gate mode for {:?}",
                                                     self.name, delay
                                                 );
 
@@ -754,7 +754,7 @@ impl StateMachine {
 
                                                 if night {
                                                     info!(
-                                                        "{}: turning on entry lights...",
+                                                        "{}: 🏡 turning on entry lights...",
                                                         self.name
                                                     );
                                                     let new_task = OneWireTask {
@@ -785,7 +785,7 @@ impl StateMachine {
                     } else {
                         //turn on associated relay
                         for id_relay in &rfid_tag.associated_relays {
-                            info!("{}: associated relay: {:?}", self.name, id_relay);
+                            info!("{}: 🔗 associated relay: {:?}", self.name, id_relay);
                             let new_task = OneWireTask {
                                 command: TaskCommand::TurnOnProlong,
                                 id_relay: Some(*id_relay),
@@ -887,7 +887,7 @@ impl OneWire {
         if lat != 0.0 && lon != 0.0 {
             night_check = Some(Instant::now());
             info!(
-                "{}: calculating sun position for lat: {}, long: {}",
+                "{}: 🌎 calculating sun position for lat: {}, long: {}",
                 self.name, lat, lon
             );
         }
@@ -1060,7 +1060,7 @@ impl OneWire {
                                                                                         if !relay.override_mode && new_state & (1 << i as u8) != 0 {
                                                                                             if flipflop_block {
                                                                                                 warn!(
-                                                                                                    "{}: {}: flip-flop protection: PIR turn-on request ignored",
+                                                                                                    "{}: {}: ✋ flip-flop protection: PIR turn-on request ignored",
                                                                                                     get_w1_device_name(
                                                                                                         rb.ow_family,
                                                                                                         rb.ow_address
@@ -1070,7 +1070,7 @@ impl OneWire {
                                                                                             } else {
                                                                                                 new_state = new_state & !(1 << i as u8);
                                                                                                 info!(
-                                                                                                    "{}: Turning ON: {}: bit={} new state: {:#04x} duration={:?}",
+                                                                                                    "{}: 💡 Turning ON: {}: bit={} new state: {:#04x} duration={:?}",
                                                                                                     get_w1_device_name(
                                                                                                         rb.ow_family,
                                                                                                         rb.ow_address
@@ -1108,7 +1108,7 @@ impl OneWire {
                                                                                 "Switch" => {
                                                                                     if flipflop_block {
                                                                                         warn!(
-                                                                                            "{}: {}: flip-flop protection: Switch toggle request ignored",
+                                                                                            "{}: {}: ✋ flip-flop protection: Switch toggle request ignored",
                                                                                             get_w1_device_name(
                                                                                                 rb.ow_family,
                                                                                                 rb.ow_address
@@ -1119,7 +1119,7 @@ impl OneWire {
                                                                                         //switching is toggling current state to the opposite:
                                                                                         new_state = new_state ^ (1 << i as u8);
                                                                                         info!(
-                                                                                            "{}: Switch toggle: {}: bit={} new state: {:#04x} duration={:?}",
+                                                                                            "{}: 🔲 Switch toggle: {}: bit={} new state: {:#04x} duration={:?}",
                                                                                             get_w1_device_name(
                                                                                                 rb.ow_family,
                                                                                                 rb.ow_address
@@ -1207,12 +1207,12 @@ impl OneWire {
                                                                             {
                                                                                 if flipflop_block {
                                                                                     warn!(
-                                                                                        "Yeelight: {}: flip-flop protection: PIR turn-on request ignored",
+                                                                                        "Yeelight: {}: ✋ flip-flop protection: PIR turn-on request ignored",
                                                                                         yeelight.name,
                                                                                     );
                                                                                 } else {
                                                                                     info!(
-                                                                                        "Yeelight: Turning ON: {}: duration={:?}",
+                                                                                        "Yeelight: 💡 Turning ON: {}: duration={:?}",
                                                                                         yeelight.name,
                                                                                         format_duration(Duration::from_secs_f32(yeelight.pir_hold_secs)).to_string(),
 
@@ -1243,7 +1243,7 @@ impl OneWire {
                                                                     "Switch" => {
                                                                         if flipflop_block {
                                                                             warn!(
-                                                                                "Yeelight: {}: flip-flop protection: Switch toggle request ignored",
+                                                                                "Yeelight: {}: ✋ flip-flop protection: Switch toggle request ignored",
                                                                                 yeelight.name,
                                                                             );
                                                                         } else {
@@ -1343,9 +1343,9 @@ impl OneWire {
                     if night != new_night {
                         night = new_night;
                         if night {
-                            info!("{}: Enabling night mode", self.name);
+                            info!("{}: Enabling night mode 🌙", self.name);
                         } else {
-                            info!("{}: Disabling night mode", self.name);
+                            info!("{}: Disabling night mode 🌞", self.name);
                         }
 
                         for rb in &mut relay_dev.relay_boards {
@@ -1371,7 +1371,7 @@ impl OneWire {
                                                         new_state = new_state | (1 << i as u8);
                                                     }
                                                     info!(
-                                                        "{}: Day/night auto turn: {}: bit={} new state: {:#04x}",
+                                                        "{}: 🌄 Day/night auto turn: {}: bit={} new state: {:#04x}",
                                                         get_w1_device_name(
                                                             rb.ow_family,
                                                             rb.ow_address
@@ -1477,7 +1477,7 @@ impl OneWire {
                                                 {
                                                     if flipflop_block {
                                                         warn!(
-                                                            "{}: {}: external flip-flop protection: PIR turn-on request ignored",
+                                                            "{}: {}: ✋ external flip-flop protection: PIR turn-on request ignored",
                                                             get_w1_device_name(
                                                                 rb.ow_family,
                                                                 rb.ow_address
@@ -1487,7 +1487,7 @@ impl OneWire {
                                                     } else {
                                                         new_state = new_state & !(1 << i as u8);
                                                         info!(
-                                                            "{}: external turning ON: {}: bit={} new state: {:#04x} duration={:?}",
+                                                            "{}: 💡 external turning ON: {}: bit={} new state: {:#04x} duration={:?}",
                                                             get_w1_device_name(
                                                                 rb.ow_family,
                                                                 rb.ow_address
@@ -1543,7 +1543,7 @@ impl OneWire {
                                                 if on {
                                                     if flipflop_block {
                                                         warn!(
-                                                            "{}: {}: external flip-flop protection: turn-off toggle request ignored",
+                                                            "{}: {}: ✋ external flip-flop protection: turn-off toggle request ignored",
                                                             get_w1_device_name(
                                                                 rb.ow_family,
                                                                 rb.ow_address
@@ -1613,7 +1613,7 @@ impl OneWire {
                                                         //set a bit -> turn off relay
                                                         new_state = new_state | (1 << i as u8);
                                                         info!(
-                                                            "{}: Auto turn-off: {}: bit={} new state: {:#04x}",
+                                                            "{}: ⌛ Auto turn-off: {}: bit={} new state: {:#04x}",
                                                             get_w1_device_name(
                                                                 rb.ow_family,
                                                                 rb.ow_address
@@ -1630,7 +1630,7 @@ impl OneWire {
                                                     } else {
                                                         if relay.override_mode {
                                                             info!(
-                                                                "{}: End of override mode: {}: bit={}",
+                                                                "{}: ⏲ End of override mode: {}: bit={}",
                                                                 get_w1_device_name(
                                                                     rb.ow_family,
                                                                     rb.ow_address
@@ -1669,13 +1669,13 @@ impl OneWire {
                                     && toggled.elapsed() > stop_after
                                 {
                                     if yeelight.powered_on {
-                                        info!("Yeelight: Auto turn-off: {}", yeelight.name,);
+                                        info!("Yeelight: ⌛ Auto turn-off: {}", yeelight.name,);
                                         yeelight.turn_on_off(false);
                                         self.increment_yeelight_counter(yeelight.id_yeelight);
                                     } else {
                                         if yeelight.override_mode {
                                             info!(
-                                                "Yeelight: End of override mode: {}",
+                                                "Yeelight: ⏲ End of override mode: {}",
                                                 yeelight.name,
                                             );
                                         }

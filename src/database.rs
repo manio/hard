@@ -310,7 +310,7 @@ impl Database {
                     )
                     .to_string()
                     .clone();
-                    info!("{}: Connecting to: {}", self.name, connectionstring);
+                    info!("{}: 🦏 Connecting to: {}", self.name, connectionstring);
                     let client = postgres::Client::connect(&connectionstring, connector.clone());
                     match client {
                         Ok(c) => {

@@ -80,7 +80,7 @@ impl Rfid {
                     if tag_complete {
                         match tag_id.parse::<u32>() {
                             Ok(tag) => {
-                                info!("{}: got complete tag ID: {}", self.name, tag);
+                                info!("{}: 🏷 got complete tag ID: {}", self.name, tag);
 
                                 if !self.push_tag_upstream(tag) {
                                     //unable to obtain a write lock, keep it locally

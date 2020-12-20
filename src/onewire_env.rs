@@ -280,7 +280,7 @@ impl OneWireEnv {
                             match sensor.read_temperature() {
                                 Some(temp) => {
                                     info!(
-                                        "{}: {}: temperature: {} °C",
+                                        "{}: {}: 🌡 temperature: {} °C",
                                         get_w1_device_name(sensor.ow_family, sensor.ow_address),
                                         sensor.name,
                                         temp,
@@ -308,7 +308,7 @@ impl OneWireEnv {
                             match sensor.read_humidity() {
                                 Some(humid) => {
                                     info!(
-                                        "{}: {}: humidity: {} %RH, temperature: {} °C",
+                                        "{}: {}: 💧 humidity: {} %RH, 🌡 temperature: {} °C",
                                         get_w1_device_name(sensor.ow_family, sensor.ow_address),
                                         sensor.name,
                                         humid.0,

@@ -81,7 +81,7 @@ impl EthLcd {
             }
             Ok(stream) => {
                 info!(
-                    "{} [{}]: connected, sending beep commands (beep method: {:?})...",
+                    "{} [{}]: 📟 connected, sending beep commands (beep method: {:?})...",
                     struct_name, hostname, beep_method
                 );
                 match beep_method {

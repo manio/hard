@@ -271,8 +271,8 @@ impl InverterMode {
         match mode {
             'P' => "Power On Mode",
             'S' => "Standby Mode",
-            'L' => "Line Mode",
-            'B' => "Battery Mode",
+            'L' => "Line Mode 🔌",
+            'B' => "Battery Mode 🔋",
             'F' => "Fault Mode",
             'H' => "Power Saving Mode",
             _ => "Unknown",
@@ -394,7 +394,7 @@ impl Skymax {
                                 Ok(data) => {
                                     self.poll_ok = self.poll_ok + 1;
                                     debug!(
-                                        "{}: read {} bytes [⏱  {} ms]: {:?}, ok: {}, errors: {}",
+                                        "{}: read {} bytes [⏱ {} ms]: {:?}, ok: {}, errors: {}",
                                         self.name,
                                         n,
                                         (elapsed.as_secs() * 1_000)

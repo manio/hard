@@ -110,7 +110,7 @@ fn logging_init() {
 async fn main() {
     let started = Instant::now();
     logging_init();
-    info!("Welcome to hard (home automation rust-daemon)");
+    info!("🛡 Welcome to hard (home automation rust-daemon)");
 
     //Ctrl-C / SIGTERM support
     let running = Arc::new(AtomicBool::new(true));
@@ -269,14 +269,14 @@ async fn main() {
     debug!("Entering main loop...");
     loop {
         if !running.load(Ordering::SeqCst) {
-            info!("Ctrl-C or SIGTERM signal detected, exiting...");
+            info!("🛑 Ctrl-C or SIGTERM signal detected, exiting...");
             break;
         }
 
         thread::sleep(Duration::from_millis(50));
     }
 
-    info!("Stopping all threads...");
+    info!("🏁 Stopping all threads...");
     //inform all threads about termination
     cancel_flag.store(true, Ordering::SeqCst);
     //wait for termination
