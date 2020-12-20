@@ -1,6 +1,7 @@
 use crate::database::{CommandCode, DbTask};
 use crate::ethlcd::{BeepMethod, EthLcd};
 use crate::rfid::RfidTag;
+use humantime::format_duration;
 use ini::Ini;
 use serde::ser::SerializeSeq;
 use serde::{Serialize, Serializer};
@@ -1077,7 +1078,7 @@ impl OneWire {
                                                                                                     relay.name,
                                                                                                     i,
                                                                                                     new_state,
-                                                                                                    Duration::from_secs_f32(relay.pir_hold_secs),
+                                                                                                    format_duration(Duration::from_secs_f32(relay.pir_hold_secs)).to_string(),
                                                                                                 );
                                                                                                 relay.stop_after = Some(Duration::from_secs_f32(relay.pir_hold_secs));
                                                                                                 rb.new_value = Some(new_state);
@@ -1126,7 +1127,7 @@ impl OneWire {
                                                                                             relay.name,
                                                                                             i,
                                                                                             new_state,
-                                                                                            Duration::from_secs_f32(relay.switch_hold_secs),
+                                                                                            format_duration(Duration::from_secs_f32(relay.switch_hold_secs)).to_string(),
                                                                                         );
                                                                                         relay.override_mode = true;
                                                                                         relay.stop_after = Some(Duration::from_secs_f32(relay.switch_hold_secs));
@@ -1213,7 +1214,8 @@ impl OneWire {
                                                                                     info!(
                                                                                         "Yeelight: Turning ON: {}: duration={:?}",
                                                                                         yeelight.name,
-                                                                                        Duration::from_secs_f32(yeelight.pir_hold_secs),
+                                                                                        format_duration(Duration::from_secs_f32(yeelight.pir_hold_secs)).to_string(),
+
                                                                                     );
                                                                                     yeelight.stop_after = Some(Duration::from_secs_f32(yeelight.pir_hold_secs));
                                                                                     yeelight.turn_on_off(true);
@@ -1249,7 +1251,7 @@ impl OneWire {
                                                                             info!(
                                                                                 "Yeelight: Switch toggle: {}: duration={:?}",
                                                                                 yeelight.name,
-                                                                                Duration::from_secs_f32(yeelight.switch_hold_secs),
+                                                                                format_duration(Duration::from_secs_f32(yeelight.switch_hold_secs)).to_string(),
                                                                             );
                                                                             yeelight
                                                                                 .override_mode =
@@ -1493,7 +1495,7 @@ impl OneWire {
                                                             relay.name,
                                                             i,
                                                             new_state,
-                                                            d,
+                                                            format_duration(d).to_string(),
                                                         );
                                                         relay.last_toggled = Some(Instant::now());
                                                         relay.stop_after = Some(d);

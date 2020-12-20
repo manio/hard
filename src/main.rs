@@ -14,6 +14,7 @@ use crate::ethlcd::EthLcd;
 use crate::onewire::OneWireTask;
 use crate::rfid::RfidTag;
 use futures::future::join_all;
+use humantime::format_duration;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -287,7 +288,7 @@ async fn main() {
     let _ = join_all(futures).await;
 
     info!(
-        "🚩 hard terminated, daemon running time: {:?}",
-        started.elapsed()
+        "🚩 hard terminated, daemon running time: {}",
+        format_duration(started.elapsed()).to_string()
     );
 }
