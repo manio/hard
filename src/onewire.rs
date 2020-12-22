@@ -6,6 +6,7 @@ use ini::Ini;
 use serde::ser::SerializeSeq;
 use serde::{Serialize, Serializer};
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
@@ -330,6 +331,7 @@ impl Yeelight {
 pub struct SensorDevices {
     pub kinds: HashMap<i32, String>,
     pub sensor_boards: Vec<SensorBoard>,
+    pub max_cesspool_level: usize,
 }
 
 pub struct RelayDevices {
@@ -374,6 +376,26 @@ impl SensorDevices {
                 self.sensor_boards.last_mut().unwrap()
             }
         };
+
+        //find a max index for cesspool level
+        for tag in tags
+            .iter()
+            .filter(|&s| s.starts_with("cesspool"))
+            .into_iter()
+        {
+            let v: Vec<&str> = tag.split(":").collect();
+            match v.get(1) {
+                Some(&index_string) => match index_string.parse::<usize>() {
+                    Ok(index) => {
+                        if self.max_cesspool_level < index {
+                            self.max_cesspool_level = index
+                        }
+                    }
+                    Err(_) => (),
+                },
+                None => (),
+            }
+        }
 
         //create and attach a sensor
         let sensor = Sensor {
@@ -501,6 +523,35 @@ impl RelayDevices {
     }
 }
 
+pub struct CesspoolLevel {
+    pub level: Vec<Option<bool>>,
+}
+
+impl CesspoolLevel {
+    fn got_all_sensors(&mut self) -> bool {
+        self.level.iter().filter(|l| l.is_none()).count() == 0
+    }
+}
+
+impl fmt::Display for CesspoolLevel {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for elem in &self.level {
+            match elem {
+                Some(val) => {
+                    if *val {
+                        write!(f, "🔴🔴🔴🔴")?;
+                    } else {
+                        write!(f, "⚫⚫⚫⚫")?;
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        Ok(())
+    }
+}
+
 pub struct StateMachine {
     pub name: String,
     pub alarm_armed: bool,
@@ -511,6 +562,7 @@ pub struct StateMachine {
     pub ethlcd: Option<EthLcd>,
     pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
     pub rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
+    pub cesspool_level: CesspoolLevel,
 }
 
 impl StateMachine {
@@ -666,6 +718,23 @@ impl StateMachine {
                         .unwrap()
                         .async_beep(BeepMethod::DoorBell);
                 }
+            }
+
+            //cesspool level sensor
+            if tag.starts_with("cesspool") {
+                let v: Vec<&str> = tag.split(":").collect();
+                match v.get(1) {
+                    Some(&index_string) => match index_string.parse::<usize>() {
+                        Ok(index) => {
+                            self.cesspool_level.level[index - 1] = Some(sensor_on);
+                            if self.cesspool_level.got_all_sensors() {
+                                info!("{}: 🛢 cesspool level: {}", self.name, self.cesspool_level);
+                            }
+                        }
+                        Err(_) => (),
+                    },
+                    _ => (),
+                };
             }
         }
 
@@ -864,6 +933,7 @@ impl OneWire {
             ethlcd,
             rfid_tags,
             rfid_pending_tags,
+            cesspool_level: CesspoolLevel { level: vec![] },
         };
 
         let mut pending_tasks = vec![];
@@ -920,6 +990,14 @@ impl OneWire {
             {
                 let mut sensor_dev = self.sensor_devices.write().unwrap();
                 let mut relay_dev = self.relay_devices.write().unwrap();
+
+                //set a cesspool level size
+                if state_machine.cesspool_level.level.len() < sensor_dev.max_cesspool_level {
+                    state_machine
+                        .cesspool_level
+                        .level
+                        .resize(sensor_dev.max_cesspool_level, None);
+                }
 
                 //fixme: do we really need to clone this HashMap to use it below?
                 let kinds_cloned = sensor_dev.kinds.clone();

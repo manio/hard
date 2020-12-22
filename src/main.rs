@@ -127,6 +127,7 @@ async fn main() {
     let sensor_devices = onewire::SensorDevices {
         kinds: HashMap::new(),
         sensor_boards: vec![],
+        max_cesspool_level: 0,
     };
     let relay_devices = onewire::RelayDevices {
         relay_boards: vec![],
