@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use crc16::*;
+use humantime::format_duration;
 use influxdb::{Client, InfluxDbWriteable};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -286,7 +287,7 @@ impl InverterMode {
                 thread_name,
                 InverterMode::get_mode_description(self.mode),
                 InverterMode::get_mode_description(current_mode),
-                self.last_change.elapsed()
+                format_duration(self.last_change.elapsed()).to_string()
             );
             self.mode = current_mode;
             self.last_change = Instant::now();
