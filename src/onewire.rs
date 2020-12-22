@@ -540,10 +540,11 @@ impl StateMachine {
         sensor_on: bool,
         sensor_tags: &Vec<String>,
         night: bool,
+        initial_read: bool,
         pending_tasks: &mut Vec<OneWireTask>,
     ) -> bool {
         //bedroom mode handling during the night
-        if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
+        if !initial_read && sensor_kind_code == "PIR_Trigger" && sensor_on && night {
             for tag in sensor_tags {
                 match tag.as_ref() {
                     "bedroom_enable" => {
@@ -568,57 +569,61 @@ impl StateMachine {
 
         //wicket gate mode opening
         //doing it in separate block as this tag has to be processed with highest priority
-        for tag in sensor_tags.iter().find(|&x| x.starts_with("wicket_gate")) {
-            //shadow the outer variable
-            let mut sensor_on = sensor_on;
-            //check for inverted sensor logic
-            if tag.contains("invert_state") {
-                sensor_on = !sensor_on;
-            }
-            if sensor_on {
-                match self.wicket_gate_started {
-                    Some(started) => {
-                        match self.wicket_gate_delay {
-                            Some(delay) => {
-                                self.wicket_gate_started = None; //processed => clear
-                                if started.elapsed() < delay {
-                                    info!("{}: opening wicket gate", self.name);
-                                    for id_relay in &self.wicket_gate_relays {
-                                        let new_task = OneWireTask {
-                                            command: TaskCommand::TurnOnProlong,
-                                            id_relay: Some(*id_relay),
-                                            tag_group: None,
-                                            duration: None,
-                                        };
-                                        pending_tasks.push(new_task);
-                                    }
+        if !initial_read {
+            for tag in sensor_tags.iter().find(|&x| x.starts_with("wicket_gate")) {
+                //shadow the outer variable
+                let mut sensor_on = sensor_on;
+                //check for inverted sensor logic
+                if tag.contains("invert_state") {
+                    sensor_on = !sensor_on;
+                }
+                if sensor_on {
+                    match self.wicket_gate_started {
+                        Some(started) => {
+                            match self.wicket_gate_delay {
+                                Some(delay) => {
+                                    self.wicket_gate_started = None; //processed => clear
+                                    if started.elapsed() < delay {
+                                        info!("{}: opening wicket gate", self.name);
+                                        for id_relay in &self.wicket_gate_relays {
+                                            let new_task = OneWireTask {
+                                                command: TaskCommand::TurnOnProlong,
+                                                id_relay: Some(*id_relay),
+                                                tag_group: None,
+                                                duration: None,
+                                            };
+                                            pending_tasks.push(new_task);
+                                        }
 
-                                    //confirmation beep
-                                    match self.ethlcd.as_mut() {
-                                        Some(ethlcd) => ethlcd.async_beep(BeepMethod::Confirmation),
-                                        _ => {}
-                                    }
+                                        //confirmation beep
+                                        match self.ethlcd.as_mut() {
+                                            Some(ethlcd) => {
+                                                ethlcd.async_beep(BeepMethod::Confirmation)
+                                            }
+                                            _ => {}
+                                        }
 
-                                    if night {
-                                        info!("{}: turning on entry lights...", self.name);
-                                        let new_task = OneWireTask {
-                                            command: TaskCommand::TurnOnProlongNight,
-                                            id_relay: None,
-                                            tag_group: Some("entry_light".to_owned()),
-                                            duration: Some(Duration::from_secs_f32(
-                                                ENTRY_LIGHT_PROLONG_SECS,
-                                            )),
-                                        };
-                                        pending_tasks.push(new_task);
-                                    }
+                                        if night {
+                                            info!("{}: turning on entry lights...", self.name);
+                                            let new_task = OneWireTask {
+                                                command: TaskCommand::TurnOnProlongNight,
+                                                id_relay: None,
+                                                tag_group: Some("entry_light".to_owned()),
+                                                duration: Some(Duration::from_secs_f32(
+                                                    ENTRY_LIGHT_PROLONG_SECS,
+                                                )),
+                                            };
+                                            pending_tasks.push(new_task);
+                                        }
 
-                                    return false; //stop further processing this sensor
+                                        return false; //stop further processing this sensor
+                                    }
                                 }
+                                _ => {}
                             }
-                            _ => {}
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -633,32 +638,34 @@ impl StateMachine {
             }
             // by default we trigger on sensor_on but if the tag contains
             // the 'all_changes' modifier, then trigger on all changes
-            if !(sensor_on || tag.contains("all_changes")) {
+            if !initial_read && !(sensor_on || tag.contains("all_changes")) {
                 continue;
             }
 
-            //run a shell script for sensors tagged with "cmd:"
-            if tag.starts_with("cmd") {
-                let on_off = if sensor_on { "on" } else { "off" };
+            if !initial_read {
+                //run a shell script for sensors tagged with "cmd:"
+                if tag.starts_with("cmd") {
+                    let on_off = if sensor_on { "on" } else { "off" };
 
-                let v: Vec<&str> = tag.split(":").collect();
-                match v.get(1) {
-                    Some(&command) => {
-                        let mut cmd = command.to_string().clone();
-                        cmd = str::replace(&cmd, "%name%", sensor_name);
-                        cmd = str::replace(&cmd, "%colon%", ":");
-                        cmd = str::replace(&cmd, "%state%", on_off);
-                        thread::spawn(move || StateMachine::run_shell_command(cmd));
-                    }
-                    _ => (),
-                };
-            }
-            //doorbell => make a beep using ethlcd device
-            else if self.ethlcd.is_some() && tag.starts_with("doorbell") {
-                self.ethlcd
-                    .as_mut()
-                    .unwrap()
-                    .async_beep(BeepMethod::DoorBell);
+                    let v: Vec<&str> = tag.split(":").collect();
+                    match v.get(1) {
+                        Some(&command) => {
+                            let mut cmd = command.to_string().clone();
+                            cmd = str::replace(&cmd, "%name%", sensor_name);
+                            cmd = str::replace(&cmd, "%colon%", ":");
+                            cmd = str::replace(&cmd, "%state%", on_off);
+                            thread::spawn(move || StateMachine::run_shell_command(cmd));
+                        }
+                        _ => (),
+                    };
+                }
+                //doorbell => make a beep using ethlcd device
+                else if self.ethlcd.is_some() && tag.starts_with("doorbell") {
+                    self.ethlcd
+                        .as_mut()
+                        .unwrap()
+                        .async_beep(BeepMethod::DoorBell);
+                }
             }
         }
 
@@ -875,6 +882,9 @@ impl OneWire {
             );
         }
 
+        let bits = vec![0, 2];
+        let names = &["PIOA", "PIOB"];
+
         loop {
             let loop_start = Instant::now();
             if worker_cancel_flag.load(Ordering::SeqCst) {
@@ -929,18 +939,15 @@ impl OneWire {
                                             new_value
                                         );
 
-                                        let bits = vec![0, 2];
-                                        let names = &["PIOA", "PIOB"];
-
-                                        for bit in bits {
+                                        for bit in &bits {
                                             //check for bit change
                                             if new_value & (1 << bit) != last_value & (1 << bit) {
                                                 let mut pio_name: &str = &"".to_string();
                                                 let mut sensor: &Option<Sensor> = &None;
-                                                if bit == 0 {
+                                                if *bit == 0 {
                                                     sensor = &sb.pio_a;
                                                     pio_name = names[0];
-                                                } else if bit == 2 {
+                                                } else if *bit == 2 {
                                                     sensor = &sb.pio_b;
                                                     pio_name = names[1];
                                                 }
@@ -969,6 +976,7 @@ impl OneWire {
                                                                 on,
                                                                 &sensor.tags,
                                                                 night,
+                                                                false,
                                                                 &mut pending_tasks,
                                                             );
                                                         info!(
@@ -1313,11 +1321,53 @@ impl OneWire {
                                 }
                                 None => {
                                     //sensor read for the very first time
-                                    info!(
+                                    debug!(
                                         "{}: setting initial sensorboard value {:#04x}",
                                         get_w1_device_name(sb.ow_family, sb.ow_address),
                                         new_value
                                     );
+
+                                    for bit in &bits {
+                                        let mut pio_name: &str = &"".to_string();
+                                        let mut sensor: &Option<Sensor> = &None;
+                                        let on: bool = new_value & (1 << bit) != 0;
+                                        if *bit == 0 {
+                                            sensor = &sb.pio_a;
+                                            pio_name = names[0];
+                                        } else if *bit == 2 {
+                                            sensor = &sb.pio_b;
+                                            pio_name = names[1];
+                                        }
+
+                                        //check if we have attached sensor
+                                        match sensor {
+                                            Some(sensor) => {
+                                                let kind_code =
+                                                    kinds_cloned.get(&sensor.id_kind).unwrap();
+                                                let on: bool = new_value & (1 << bit) != 0;
+
+                                                let _ = !state_machine.sensor_hook(
+                                                    &kind_code,
+                                                    &sensor.name,
+                                                    on,
+                                                    &sensor.tags,
+                                                    night,
+                                                    true,
+                                                    &mut pending_tasks,
+                                                );
+                                                debug!(
+                                                    "initial state: {}: [{} {} {}]: {:#04x} on: {}",
+                                                    kind_code,
+                                                    get_w1_device_name(sb.ow_family, sb.ow_address),
+                                                    pio_name,
+                                                    sensor.name,
+                                                    new_value,
+                                                    on
+                                                );
+                                            }
+                                            _ => {}
+                                        }
+                                    }
                                 }
                             }
                             //processed -> save new value as the previous one:
