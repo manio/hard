@@ -114,7 +114,7 @@ fn logging_init() {
     }
 }
 
-#[tokio::main]
+#[tokio::main(worker_threads = 3)]
 async fn main() {
     let started = Instant::now();
     logging_init();
