@@ -571,7 +571,7 @@ pub struct StateMachine {
 }
 
 impl StateMachine {
-    fn run_shell_command(cmd: String) {
+    pub fn run_shell_command(cmd: String) {
         info!("StateMachine: about to call external command: {}", cmd);
         //we have a command and args in one string, split it by first space
         let mut args: Vec<&str> = cmd.splitn(2, " ").collect();

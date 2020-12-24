@@ -1,4 +1,5 @@
 use crate::lcdproc::{LcdTask, LcdTaskCommand};
+use crate::onewire::StateMachine;
 use chrono::{DateTime, Utc};
 use crc16::*;
 use humantime::format_duration;
@@ -318,6 +319,7 @@ pub struct Skymax {
     pub poll_errors: u64,
     pub influxdb_url: Option<String>,
     pub lcd_transmitter: Sender<LcdTask>,
+    pub mode_change_script: Option<String>,
 }
 
 impl Skymax {
@@ -576,6 +578,25 @@ impl Skymax {
                                         inverter_mode = Some(match inverter_mode {
                                             Some(mut inv_mode) => {
                                                 if inv_mode.set_new_mode(current_mode, &self.name) {
+                                                    //run a shell script when mode has changed
+                                                    match &self.mode_change_script {
+                                                        Some(command) => {
+                                                            let mut cmd =
+                                                                command.to_string().clone();
+                                                            cmd = str::replace(
+                                                                &cmd,
+                                                                "%mode%",
+                                                                InverterMode::get_mode_description(
+                                                                    current_mode,
+                                                                ),
+                                                            );
+                                                            thread::spawn(move || {
+                                                                StateMachine::run_shell_command(cmd)
+                                                            });
+                                                        }
+                                                        _ => (),
+                                                    };
+
                                                     //update lcd with new inverter data
                                                     let task = LcdTask {
                                                         command: LcdTaskCommand::SetLineText,

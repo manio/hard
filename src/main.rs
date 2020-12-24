@@ -59,6 +59,12 @@ fn skymax_filepath() -> Option<String> {
         .and_then(|x| x.get("skymax_device").cloned())
 }
 
+fn skymax_mode_script() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("skymax_mode_change_script").cloned())
+}
+
 fn influxdb_url() -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
     conf.section(Some("general".to_owned()))
@@ -271,6 +277,7 @@ async fn main() {
                 poll_errors: 0,
                 influxdb_url: influxdb_url(),
                 lcd_transmitter: lcd_tx.clone(),
+                mode_change_script: skymax_mode_script(),
             };
             let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
             futures.push(skymax_future);
