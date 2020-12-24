@@ -197,6 +197,7 @@ async fn main() {
         name: "onewire".to_string(),
         transmitter: tx,
         ow_receiver: ow_rx,
+        lcd_transmitter: lcd_tx.clone(),
         sensor_devices: onewire_sensor_devices.clone(),
         relay_devices: onewire_relay_devices.clone(),
     };

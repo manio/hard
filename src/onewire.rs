@@ -1,5 +1,6 @@
 use crate::database::{CommandCode, DbTask};
 use crate::ethlcd::{BeepMethod, EthLcd};
+use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use crate::rfid::RfidTag;
 use humantime::format_duration;
 use ini::Ini;
@@ -531,6 +532,9 @@ impl CesspoolLevel {
     fn got_all_sensors(&mut self) -> bool {
         self.level.iter().filter(|l| l.is_none()).count() == 0
     }
+    fn lcd_get_level(&mut self) -> u8 {
+        self.level.iter().flatten().filter(|&x| *x == true).count() as u8
+    }
 }
 
 impl fmt::Display for CesspoolLevel {
@@ -563,6 +567,7 @@ pub struct StateMachine {
     pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
     pub rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
     pub cesspool_level: CesspoolLevel,
+    pub lcd_transmitter: Sender<LcdTask>,
 }
 
 impl StateMachine {
@@ -729,6 +734,14 @@ impl StateMachine {
                             self.cesspool_level.level[index - 1] = Some(sensor_on);
                             if self.cesspool_level.got_all_sensors() {
                                 info!("{}: 🛢 cesspool level: {}", self.name, self.cesspool_level);
+
+                                //inform lcdproc thread about initial/new level
+                                let task = LcdTask {
+                                    command: LcdTaskCommand::SetCesspoolLevel,
+                                    int_arg: self.cesspool_level.lcd_get_level(),
+                                    string_arg: None,
+                                };
+                                self.lcd_transmitter.send(task).unwrap();
                             }
                         }
                         Err(_) => (),
@@ -865,6 +878,7 @@ pub struct OneWire {
     pub name: String,
     pub transmitter: Sender<DbTask>,
     pub ow_receiver: Receiver<OneWireTask>,
+    pub lcd_transmitter: Sender<LcdTask>,
     pub sensor_devices: Arc<RwLock<SensorDevices>>,
     pub relay_devices: Arc<RwLock<RelayDevices>>,
 }
@@ -934,6 +948,7 @@ impl OneWire {
             rfid_tags,
             rfid_pending_tags,
             cesspool_level: CesspoolLevel { level: vec![] },
+            lcd_transmitter: self.lcd_transmitter.clone(),
         };
 
         let mut pending_tasks = vec![];
