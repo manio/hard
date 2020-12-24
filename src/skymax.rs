@@ -457,7 +457,10 @@ impl Skymax {
             let mut options = OpenOptions::new();
             match options.read(true).write(true).open(&self.device_path).await {
                 Ok(mut file) => {
-                    info!("{}: device opened", self.name);
+                    info!(
+                        "{}: device opened, poll interval: {}s",
+                        self.name, SKYMAX_POLL_INTERVAL_SECS
+                    );
                     loop {
                         if worker_cancel_flag.load(Ordering::SeqCst) {
                             debug!("{}: Got terminate signal from main", self.name);
