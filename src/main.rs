@@ -11,6 +11,7 @@ use self::ini::Ini;
 
 use crate::database::DbTask;
 use crate::ethlcd::EthLcd;
+use crate::lcdproc::LcdTask;
 use crate::onewire::OneWireTask;
 use crate::rfid::RfidTag;
 use futures::future::join_all;
@@ -27,6 +28,7 @@ use tokio::task;
 
 mod database;
 mod ethlcd;
+mod lcdproc;
 mod onewire;
 mod onewire_env;
 mod rfid;
@@ -62,7 +64,13 @@ fn influxdb_url() -> Option<String> {
     conf.section(Some("general".to_owned()))
         .and_then(|x| x.get("influxdb_url").cloned())
 }
-//fixme: refactor 5 above functions
+
+fn lcdproc_host_port() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("lcdproc").cloned())
+}
+//fixme: refactor above functions
 
 fn logging_init() {
     let mut conf = Config::default();
@@ -146,6 +154,7 @@ async fn main() {
     let onewire_rfid_pending_tags = Arc::new(RwLock::new(rfid_pending_tags));
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //database thread comm channel
     let (ow_tx, ow_rx): (Sender<OneWireTask>, Receiver<OneWireTask>) = mpsc::channel(); //onewire thread comm channel
+    let (lcd_tx, lcd_rx): (Sender<LcdTask>, Receiver<LcdTask>) = mpsc::channel(); //lcdproc comm channel
 
     //ethlcd struct
     let ethlcd = match ethlcd_hostname() {
@@ -263,6 +272,24 @@ async fn main() {
             };
             let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
             futures.push(skymax_future);
+        }
+        _ => {}
+    }
+
+    //lcdproc async task
+    match lcdproc_host_port() {
+        Some(host) => {
+            let worker_cancel_flag = cancel_flag.clone();
+            let mut lcdproc = lcdproc::Lcdproc {
+                name: "lcdproc".to_string(),
+                lcdproc_host_port: host,
+                lcd_receiver: lcd_rx,
+                lcd_lines: vec![],
+                level: None,
+            };
+            let lcdproc_future =
+                task::spawn(async move { lcdproc.worker(worker_cancel_flag).await });
+            futures.push(lcdproc_future);
         }
         _ => {}
     }
