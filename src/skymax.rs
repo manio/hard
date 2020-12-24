@@ -667,6 +667,7 @@ impl Skymax {
                     continue;
                 }
             }
+            thread::sleep(Duration::from_millis(30));
         }
 
         info!("{}: Stopping task", self.name);
