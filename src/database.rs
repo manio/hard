@@ -66,7 +66,7 @@ impl Database {
                 let mut relay_dev = self.relay_devices.write().unwrap();
                 let mut rfid_tag = self.rfid_tags.write().unwrap();
 
-                info!("{}: Loading data from view 'kinds'...", self.name);
+                info!("🦏 {}: Loading data from view 'kinds'...", self.name);
                 sensor_dev.kinds.clear();
                 env_sensor_dev.kinds.clear();
                 for row in client.query("select * from kinds", &[]).unwrap() {
@@ -77,7 +77,7 @@ impl Database {
                     env_sensor_dev.kinds.insert(id_kind, name);
                 }
 
-                info!("{}: Loading data from view 'sensors'...", self.name);
+                info!("🦏 {}: Loading data from view 'sensors'...", self.name);
                 sensor_dev.sensor_boards.clear();
                 for row in client.query("select * from sensors", &[]).unwrap() {
                     let id_sensor: i32 = row.get("id_sensor");
@@ -114,7 +114,7 @@ impl Database {
                     );
                 }
 
-                info!("{}: Loading data from view 'env_sensors'...", self.name);
+                info!("🦏 {}: Loading data from view 'env_sensors'...", self.name);
                 env_sensor_dev.env_sensors.clear();
                 for row in client.query("select * from env_sensors", &[]).unwrap() {
                     let id_sensor: i32 = row.get("id_sensor");
@@ -148,7 +148,7 @@ impl Database {
                     );
                 }
 
-                info!("{}: Loading data from view 'relays'...", self.name);
+                info!("🦏 {}: Loading data from view 'relays'...", self.name);
                 relay_dev.relay_boards.clear();
                 for row in client.query("select * from relays", &[]).unwrap() {
                     let id_relay: i32 = row.get("id_relay");
@@ -181,7 +181,7 @@ impl Database {
                     );
                 }
 
-                info!("{}: Loading data from view 'yeelights'...", self.name);
+                info!("🦏 {}: Loading data from view 'yeelights'...", self.name);
                 relay_dev.yeelight.clear();
                 for row in client.query("select * from yeelights", &[]).unwrap() {
                     let id_yeelight: i32 = row.get("id_yeelight");
@@ -208,7 +208,7 @@ impl Database {
                     );
                 }
 
-                info!("{}: Loading data from view 'rfid_tags'...", self.name);
+                info!("🦏 {}: Loading data from view 'rfid_tags'...", self.name);
                 rfid_tag.clear();
                 for row in client.query("select * from rfid_tags", &[]).unwrap() {
                     let id_tag: i32 = row.get("id_tag");
@@ -310,7 +310,7 @@ impl Database {
                     )
                     .to_string()
                     .clone();
-                    info!("{}: 🦏 Connecting to: {}", self.name, connectionstring);
+                    info!("🦏 {}: Connecting to: {}", self.name, connectionstring);
                     let client = postgres::Client::connect(&connectionstring, connector.clone());
                     match client {
                         Ok(c) => {
