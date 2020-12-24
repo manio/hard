@@ -1,9 +1,11 @@
+use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use chrono::{DateTime, Utc};
 use crc16::*;
 use humantime::format_duration;
 use influxdb::{Client, InfluxDbWriteable};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -280,6 +282,18 @@ impl InverterMode {
         }
     }
 
+    fn get_mode_description_lcd(mode: char) -> String {
+        let mut desc: String = InverterMode::get_mode_description(mode).to_string();
+
+        //remove emojis
+        if mode == 'L' || mode == 'P' {
+            desc.pop();
+            desc.pop();
+        }
+
+        desc
+    }
+
     fn set_new_mode(&mut self, current_mode: char, thread_name: &String) -> bool {
         if self.mode != current_mode {
             warn!(
@@ -303,6 +317,7 @@ pub struct Skymax {
     pub poll_ok: u64,
     pub poll_errors: u64,
     pub influxdb_url: Option<String>,
+    pub lcd_transmitter: Sender<LcdTask>,
 }
 
 impl Skymax {
@@ -488,6 +503,52 @@ impl Skymax {
                                                 }
                                                 None => (),
                                             }
+
+                                            //update lcd with new inverter data
+                                            //line 0: mode + ac voltage
+                                            let task = LcdTask {
+                                                command: LcdTaskCommand::SetLineText,
+                                                int_arg: 0,
+                                                string_arg: Some(format!(
+                                                    "{}: {}V",
+                                                    match &inverter_mode {
+                                                        Some(inv_mode) => {
+                                                            InverterMode::get_mode_description_lcd(
+                                                                inv_mode.mode,
+                                                            )
+                                                        }
+                                                        None => {
+                                                            "Unknown Mode".into()
+                                                        }
+                                                    },
+                                                    parameters.voltage_grid.unwrap_or_default()
+                                                )),
+                                            };
+                                            self.lcd_transmitter.send(task).unwrap();
+
+                                            //line 1: load info
+                                            let task = LcdTask {
+                                                command: LcdTaskCommand::SetLineText,
+                                                int_arg: 1,
+                                                string_arg: Some(format!(
+                                                    "Load: {}%, {}W",
+                                                    parameters.load_percent.unwrap_or_default(),
+                                                    parameters.load_watt.unwrap_or_default()
+                                                )),
+                                            };
+                                            self.lcd_transmitter.send(task).unwrap();
+
+                                            //line 2: battery info
+                                            let task = LcdTask {
+                                                command: LcdTaskCommand::SetLineText,
+                                                int_arg: 2,
+                                                string_arg: Some(format!(
+                                                    "Batt: {}%, {}V",
+                                                    parameters.batt_capacity.unwrap_or_default(),
+                                                    parameters.voltage_batt.unwrap_or_default()
+                                                )),
+                                            };
+                                            self.lcd_transmitter.send(task).unwrap();
                                         }
                                         _ => {
                                             error!(
@@ -511,7 +572,34 @@ impl Skymax {
                                     Some(current_mode) => {
                                         inverter_mode = Some(match inverter_mode {
                                             Some(mut inv_mode) => {
-                                                inv_mode.set_new_mode(current_mode, &self.name);
+                                                if inv_mode.set_new_mode(current_mode, &self.name) {
+                                                    //update lcd with new inverter data
+                                                    let task = LcdTask {
+                                                        command: LcdTaskCommand::SetLineText,
+                                                        int_arg: 0,
+                                                        string_arg: Some(format!(
+                                                            "new mode: {}",
+                                                            InverterMode::get_mode_description_lcd(
+                                                                current_mode
+                                                            )
+                                                        )),
+                                                    };
+                                                    self.lcd_transmitter.send(task).unwrap();
+
+                                                    //if we are on battery, set emergency mode
+                                                    let task = LcdTask {
+                                                        command: LcdTaskCommand::SetEmergencyMode,
+                                                        int_arg: {
+                                                            if current_mode == 'B' {
+                                                                1
+                                                            } else {
+                                                                0
+                                                            }
+                                                        },
+                                                        string_arg: None,
+                                                    };
+                                                    self.lcd_transmitter.send(task).unwrap();
+                                                }
                                                 inv_mode
                                             }
                                             None => {
@@ -522,6 +610,34 @@ impl Skymax {
                                                         current_mode
                                                     )
                                                 );
+
+                                                //update lcd with new inverter data
+                                                let task = LcdTask {
+                                                    command: LcdTaskCommand::SetLineText,
+                                                    int_arg: 0,
+                                                    string_arg: Some(format!(
+                                                        "new mode: {}",
+                                                        InverterMode::get_mode_description_lcd(
+                                                            current_mode
+                                                        )
+                                                    )),
+                                                };
+                                                self.lcd_transmitter.send(task).unwrap();
+
+                                                //enable/disable emergency mode
+                                                let task = LcdTask {
+                                                    command: LcdTaskCommand::SetEmergencyMode,
+                                                    int_arg: {
+                                                        if current_mode == 'B' {
+                                                            1
+                                                        } else {
+                                                            0
+                                                        }
+                                                    },
+                                                    string_arg: None,
+                                                };
+                                                self.lcd_transmitter.send(task).unwrap();
+
                                                 InverterMode {
                                                     last_change: Instant::now(),
                                                     mode: current_mode,

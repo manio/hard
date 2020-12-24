@@ -270,6 +270,7 @@ async fn main() {
                 poll_ok: 0,
                 poll_errors: 0,
                 influxdb_url: influxdb_url(),
+                lcd_transmitter: lcd_tx.clone(),
             };
             let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
             futures.push(skymax_future);
