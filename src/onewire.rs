@@ -1147,9 +1147,9 @@ impl OneWire {
                                                                                 match kind_code.as_ref()
                                                                                 {
                                                                                     "PIR_Trigger" => {
-                                                                                        if !relay
+                                                                                        if relay.override_mode || (!relay
                                                                                             .pir_exclude
-                                                                                            && on && (night || relay.pir_all_day)
+                                                                                            && on && (night || relay.pir_all_day))
                                                                                         {
                                                                                             //checking if bit is set (relay is off)
                                                                                             if !relay.override_mode && new_state & (1 << i as u8) != 0 {
@@ -1290,11 +1290,11 @@ impl OneWire {
 
                                                                     match kind_code.as_ref() {
                                                                         "PIR_Trigger" => {
-                                                                            if !yeelight.pir_exclude
+                                                                            if yeelight.override_mode || (!yeelight.pir_exclude
                                                                                 && on
                                                                                 && (night
                                                                                 || yeelight
-                                                                                .pir_all_day)
+                                                                                .pir_all_day))
                                                                             {
                                                                                 //checking if yeelight is off
                                                                                 if !yeelight
