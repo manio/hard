@@ -273,7 +273,7 @@ impl OneWireEnv {
                     let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
 
                     //fixme: do we really need to clone this HashMap to use it below?
-                    let kinds_cloned = env_sensor_dev.kinds.clone();
+                    let _kinds_cloned = env_sensor_dev.kinds.clone();
 
                     for sensor in &mut env_sensor_dev.env_sensors {
                         if sensor.is_temp_sensor() {
@@ -301,7 +301,7 @@ impl OneWireEnv {
                     let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
 
                     //fixme: do we really need to clone this HashMap to use it below?
-                    let kinds_cloned = env_sensor_dev.kinds.clone();
+                    let _kinds_cloned = env_sensor_dev.kinds.clone();
 
                     for sensor in &mut env_sensor_dev.env_sensors {
                         if sensor.is_humid_sensor() {

@@ -760,7 +760,7 @@ impl StateMachine {
         sensor_on: bool,
         relay_tags: &Vec<String>,
         night: bool,
-        flipflop_block: bool,
+        _flipflop_block: bool,
     ) -> bool {
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
             for tag in relay_tags {
@@ -777,17 +777,17 @@ impl StateMachine {
 
     fn yeelight_hook(
         &mut self,
-        sensor_kind_code: &str,
-        sensor_on: bool,
-        yeelight_tags: &Vec<String>,
-        night: bool,
-        flipflop_block: bool,
+        _sensor_kind_code: &str,
+        _sensor_on: bool,
+        _yeelight_tags: &Vec<String>,
+        _night: bool,
+        _flipflop_block: bool,
     ) -> bool {
         true
     }
 
     fn process_rfid_tags(&mut self, pending_tasks: &mut Vec<OneWireTask>, night: bool) {
-        let mut rfid_tags = self.rfid_tags.read().unwrap();
+        let rfid_tags = self.rfid_tags.read().unwrap();
         let mut rfid_pending_tags = self.rfid_pending_tags.write().unwrap();
         if !rfid_pending_tags.is_empty() {
             //todo
@@ -1423,7 +1423,6 @@ impl OneWire {
                                     for bit in &bits {
                                         let mut pio_name: &str = &"".to_string();
                                         let mut sensor: &Option<Sensor> = &None;
-                                        let on: bool = new_value & (1 << bit) != 0;
                                         if *bit == 0 {
                                             sensor = &sb.pio_a;
                                             pio_name = names[0];

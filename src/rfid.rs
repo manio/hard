@@ -25,7 +25,7 @@ impl Rfid {
                 rfid_pending_tags.push(tag);
                 true
             }
-            Err(e) => false,
+            Err(_) => false,
         }
     }
     pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
