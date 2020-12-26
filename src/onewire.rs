@@ -5,10 +5,12 @@ use crate::rfid::RfidTag;
 use humantime::format_duration;
 use ini::Ini;
 use serde::ser::SerializeSeq;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
+use std::io::prelude::*;
+use std::io::BufReader;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::ops::Add;
@@ -260,6 +262,11 @@ struct YeelightCommand {
     #[serde(serialize_with = "Yeelight::params_serialize")]
     params: Vec<String>,
 }
+#[derive(Deserialize)]
+struct YeelightResult {
+    id: u32,
+    result: Vec<String>,
+}
 
 impl Yeelight {
     fn params_serialize<S>(params: &Vec<String>, serializer: S) -> Result<S::Ok, S::Error>
@@ -282,8 +289,9 @@ impl Yeelight {
 
     fn yeelight_tcp_command(yeelight_name: String, ip_addr: String, turn_on: bool) {
         let on_off = if turn_on { "on" } else { "off" };
+        let id = 1;
         let cmd = YeelightCommand {
-            id: 1,
+            id: id,
             method: YEELIGHT_METHOD_SET_POWER.to_owned(),
             params: vec![
                 on_off.to_owned(),
@@ -298,22 +306,40 @@ impl Yeelight {
             "Yeelight: {}: generated JSON command={:?}",
             yeelight_name, json_cmd
         );
-        debug!("Yeelight: {}: connecting...", yeelight_name);
-        match TcpStream::connect(format!("{}:{}", ip_addr, YEELIGHT_TCP_PORT)) {
-            Err(e) => {
-                error!("Yeelight: {}: connection error: {:?}", yeelight_name, e);
-            }
-            Ok(mut stream) => {
-                debug!("Yeelight: {}: connected, sending command", yeelight_name);
-                json_cmd.push_str("\r\n"); //specs requirement
-                match stream.write_all(json_cmd.as_bytes()) {
-                    Err(e) => {
-                        error!(
-                            "Yeelight: {}: cannot write to socket: {:?}",
-                            yeelight_name, e
-                        );
+
+        for _ in 1..=3 {
+            debug!("Yeelight: {}: connecting...", yeelight_name);
+            match TcpStream::connect(format!("{}:{}", ip_addr, YEELIGHT_TCP_PORT)) {
+                Err(e) => {
+                    error!("Yeelight: {}: connection error: {:?}", yeelight_name, e);
+                }
+                Ok(mut stream) => {
+                    debug!("Yeelight: {}: connected, sending command", yeelight_name);
+                    json_cmd.push_str("\r\n"); //specs requirement
+                    match stream.write_all(json_cmd.as_bytes()) {
+                        Ok(_) => {
+                            let _ = stream.set_read_timeout(Some(Duration::from_secs_f32(1.5)));
+                            let mut reader = BufReader::new(stream.try_clone().unwrap());
+
+                            //read a line with json result from yeelight
+                            let mut raw_result = String::new();
+                            let _ = reader.read_line(&mut raw_result);
+
+                            //parse json
+                            let json_res: YeelightResult =
+                                serde_json::from_str(&raw_result).unwrap();
+                            //check for correct command result
+                            if json_res.id == id && json_res.result == vec!["ok"] {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                "Yeelight: {}: cannot write to socket: {:?}",
+                                yeelight_name, e
+                            );
+                        }
                     }
-                    Ok(_) => (),
                 }
             }
         }
