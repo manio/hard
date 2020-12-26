@@ -214,6 +214,7 @@ impl Lcdproc {
                                 Err(e) => {
                                     if e.kind() != std::io::ErrorKind::WouldBlock {
                                         error!("{}: connection read error: {:?}", self.name, e);
+                                        break;
                                     }
                                 }
                             };
