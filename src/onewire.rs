@@ -1186,7 +1186,7 @@ impl OneWire {
                                                                                 match kind_code.as_ref()
                                                                                 {
                                                                                     "PIR_Trigger" => {
-                                                                                        if relay.override_mode || (!relay
+                                                                                        if relay.override_mode && on || (!relay
                                                                                             .pir_exclude
                                                                                             && on && (night || relay.pir_all_day))
                                                                                         {
@@ -1329,7 +1329,7 @@ impl OneWire {
 
                                                                     match kind_code.as_ref() {
                                                                         "PIR_Trigger" => {
-                                                                            if yeelight.override_mode || (!yeelight.pir_exclude
+                                                                            if yeelight.override_mode && on || (!yeelight.pir_exclude
                                                                                 && on
                                                                                 && (night
                                                                                 || yeelight
