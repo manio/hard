@@ -127,7 +127,20 @@ impl SensorBoard {
                             get_w1_device_name(self.ow_family, self.ow_address),
                             new_value[0]
                         );
-                        return Some(new_value[0]);
+                        //in this application only the following values are valid
+                        if new_value[0] == 0x5a
+                            || new_value[0] == 0x4b
+                            || new_value[0] == 0x1e
+                            || new_value[0] == 0x0f
+                        {
+                            return Some(new_value[0]);
+                        } else {
+                            error!(
+                                "{}: reading state file gives invalid byte value: {:#04x}, ignoring",
+                                get_w1_device_name(self.ow_family, self.ow_address),
+                                new_value[0]
+                            );
+                        }
                     }
                     Err(e) => {
                         error!(
