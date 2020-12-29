@@ -511,17 +511,21 @@ impl Skymax {
                         if worker_cancel_flag.load(Ordering::SeqCst) {
                             debug!("{}: Got terminate signal from main", self.name);
                             terminated = true;
-                            break;
                         }
 
-                        if stats_interval.elapsed()
-                            > Duration::from_secs_f32(SKYMAX_STATS_DUMP_INTERVAL_SECS)
+                        if terminated
+                            || stats_interval.elapsed()
+                                > Duration::from_secs_f32(SKYMAX_STATS_DUMP_INTERVAL_SECS)
                         {
                             stats_interval = Instant::now();
                             info!(
                                 "{}: 📊 inverter query statistics: ok: {}, errors: {}",
                                 self.name, self.poll_ok, self.poll_errors
                             );
+
+                            if terminated {
+                                break;
+                            }
                         }
 
                         if poll_interval.elapsed()
