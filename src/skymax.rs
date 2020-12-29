@@ -5,6 +5,9 @@ use crc16::*;
 use humantime::format_duration;
 use influxdb::{Client, InfluxDbWriteable};
 use std::fmt;
+use std::fs;
+use std::io;
+use std::io::{Error, ErrorKind};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
@@ -443,6 +446,34 @@ impl Skymax {
         Ok((out, device))
     }
 
+    fn get_first_dir(dir: String) -> io::Result<String> {
+        //obtaining the first directory name from specified path
+        let name = fs::read_dir(&dir)?
+            .map(|res| res.map(|e| e.file_name()))
+            .collect::<std::result::Result<Vec<_>, io::Error>>()?
+            .get(0)
+            .ok_or(Error::new(ErrorKind::Other, "Empty dir"))?
+            .to_string_lossy()
+            .to_string();
+
+        Ok(name)
+    }
+
+    fn get_device_path(&self) -> Result<String> {
+        //first get the device directory with its USB ID in it
+        let device_dir = Skymax::get_first_dir(self.device_path.clone())?;
+
+        //now get the hidraw device name, like 'hidraw0'
+        let hidraw_name =
+            Skymax::get_first_dir(format!("{}/{}/hidraw", &self.device_path, device_dir))?;
+
+        //create the full /dev/ path with obtained filename
+        let mut full_path = "/dev/".to_string();
+        full_path.push_str(&hidraw_name);
+
+        Ok(full_path)
+    }
+
     pub async fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
         info!("{}: Starting task", self.name);
         let mut poll_interval = Instant::now();
@@ -455,9 +486,22 @@ impl Skymax {
                 break;
             }
 
-            info!("{}: opening device: {:?}", self.name, self.device_path);
+            //obtain device path from sysfs
+            let device_path = match self.get_device_path() {
+                Ok(path) => path,
+                Err(e) => {
+                    error!("{}: unable to obtain device path: {:?}", self.name, e);
+                    thread::sleep(Duration::from_secs(10));
+                    continue;
+                }
+            };
+
+            info!(
+                "{}: opening device: {:?}, obtained from physical path: {:?}",
+                self.name, device_path, self.device_path
+            );
             let mut options = OpenOptions::new();
-            match options.read(true).write(true).open(&self.device_path).await {
+            match options.read(true).write(true).open(&device_path).await {
                 Ok(mut file) => {
                     info!(
                         "{}: device opened, poll interval: {}s",
