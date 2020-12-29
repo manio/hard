@@ -348,7 +348,7 @@ impl Database {
 
             thread::sleep(Duration::from_millis(50));
         }
-        info!("{}: Stopping thread", self.name);
+        info!("{}: thread stopped", self.name);
     }
 
     fn increment_cycles(&mut self, table_name: String, id_sensor: i32, counter: u32) -> bool {

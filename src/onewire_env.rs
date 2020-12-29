@@ -361,6 +361,6 @@ impl OneWireEnv {
 
             thread::sleep(Duration::from_millis(100));
         }
-        info!("{}: Stopping thread", self.name);
+        info!("{}: thread stopped", self.name);
     }
 }

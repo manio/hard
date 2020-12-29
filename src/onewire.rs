@@ -1883,6 +1883,6 @@ impl OneWire {
                 loop_start.elapsed().as_millis()
             );
         }
-        info!("{}: Stopping thread", self.name);
+        info!("{}: thread stopped", self.name);
     }
 }

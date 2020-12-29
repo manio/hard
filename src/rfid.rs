@@ -144,6 +144,6 @@ impl Rfid {
                 }
             }
         }
-        info!("{}: Stopping thread", self.name);
+        info!("{}: thread stopped", self.name);
     }
 }
