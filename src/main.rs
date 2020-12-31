@@ -31,6 +31,7 @@ mod ethlcd;
 mod lcdproc;
 mod onewire;
 mod onewire_env;
+mod remeha;
 mod rfid;
 mod skymax;
 mod webserver;
@@ -65,6 +66,12 @@ fn skymax_mode_script() -> Option<String> {
         .and_then(|x| x.get("skymax_mode_change_script").cloned())
 }
 
+fn remeha_state_script() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("remeha_state_change_script").cloned())
+}
+
 fn influxdb_url() -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
     conf.section(Some("general".to_owned()))
@@ -75,6 +82,12 @@ fn lcdproc_host_port() -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
     conf.section(Some("general".to_owned()))
         .and_then(|x| x.get("lcdproc").cloned())
+}
+
+fn remeha_device() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("remeha_device").cloned())
 }
 //fixme: refactor above functions
 
@@ -299,6 +312,24 @@ async fn main() {
             let lcdproc_future =
                 task::spawn(async move { lcdproc.worker(worker_cancel_flag).await });
             futures.push(lcdproc_future);
+        }
+        _ => {}
+    }
+
+    //remeha async task
+    match remeha_device() {
+        Some(path) => {
+            let worker_cancel_flag = cancel_flag.clone();
+            let mut remeha = remeha::Remeha {
+                name: "remeha".to_string(),
+                device_path: path,
+                poll_ok: 0,
+                poll_errors: 0,
+                influxdb_url: influxdb_url(),
+                state_change_script: remeha_state_script(),
+            };
+            let remeha_future = task::spawn(async move { remeha.worker(worker_cancel_flag).await });
+            futures.push(remeha_future);
         }
         _ => {}
     }

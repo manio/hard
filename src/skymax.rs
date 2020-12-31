@@ -446,7 +446,7 @@ impl Skymax {
         Ok((out, device))
     }
 
-    fn get_first_dir(dir: String) -> io::Result<String> {
+    pub fn get_first_dir(dir: String) -> io::Result<String> {
         //obtaining the first directory name from specified path
         let name = fs::read_dir(&dir)?
             .map(|res| res.map(|e| e.file_name()))
