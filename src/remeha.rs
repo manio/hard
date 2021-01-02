@@ -5,10 +5,12 @@ use crc16::*;
 use influxdb::{Client, InfluxDbWriteable};
 use std::fmt;
 use std::io;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use termios::*;
 use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::prelude::*;
@@ -563,6 +565,14 @@ impl Remeha {
         Ok(full_path)
     }
 
+    fn setup_fd(fd: RawFd) -> io::Result<()> {
+        let mut termios = Termios::from_fd(fd)?;
+        cfmakeraw(&mut termios);
+        tcsetattr(fd, TCSANOW, &termios)?;
+        tcflush(fd, TCIOFLUSH)?;
+        Ok(())
+    }
+
     pub async fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
         info!("{}: Starting task", self.name);
         let mut poll_interval = Instant::now();
@@ -596,6 +606,15 @@ impl Remeha {
                         "{}: device opened, poll interval: {}s",
                         self.name, REMEHA_POLL_INTERVAL_SECS
                     );
+
+                    //call cfmakeraw on a fd termios struct
+                    //to enable raw mode
+                    if let Err(e) = Remeha::setup_fd(file.as_raw_fd()) {
+                        error!("{}: error calling cfmakeraw() on fd: {:?}", self.name, e);
+                        thread::sleep(Duration::from_secs(10));
+                        continue;
+                    }
+
                     loop {
                         if worker_cancel_flag.load(Ordering::SeqCst) {
                             debug!("{}: Got terminate signal from main", self.name);
