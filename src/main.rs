@@ -185,7 +185,7 @@ async fn main() {
         _ => None,
     };
 
-    //creating db thread
+    //creating db task
     let mut db = database::Database {
         name: "postgres".to_string(),
         host: None,
@@ -201,15 +201,12 @@ async fn main() {
         sensor_counters: Default::default(),
         relay_counters: Default::default(),
         yeelight_counters: Default::default(),
+        influx_sensor_counters: Default::default(),
+        influxdb_url: influxdb_url(),
     };
     let worker_cancel_flag = cancel_flag.clone();
-    let thread_builder = thread::Builder::new().name("db".into()); //thread name
-    let thread_handler = thread_builder
-        .spawn(move || {
-            db.worker(worker_cancel_flag);
-        })
-        .unwrap();
-    threads.push(thread_handler);
+    let db_future = task::spawn(async move { db.worker(worker_cancel_flag).await });
+    futures.push(db_future);
 
     //creating onewire thread
     let onewire = onewire::OneWire {

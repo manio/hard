@@ -12,10 +12,18 @@ use std::sync::{Arc, RwLock};
 use crate::onewire;
 use crate::onewire_env;
 use crate::rfid::RfidTag;
+use chrono::Utc;
+use influxdb::InfluxDbWriteable;
+use influxdb::{Client, Timestamp};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, Instant};
+use tokio_compat_02::FutureExt;
+
+// Just a generic Result type to ease error handling for us. Errors in multithreaded
+// async contexts needs some extra restrictions
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 pub struct Database {
     pub name: String,
@@ -32,6 +40,8 @@ pub struct Database {
     pub sensor_counters: HashMap<i32, u32>,
     pub relay_counters: HashMap<i32, u32>,
     pub yeelight_counters: HashMap<i32, u32>,
+    pub influx_sensor_counters: HashMap<i32, u32>,
+    pub influxdb_url: Option<String>,
 }
 
 #[derive(Debug)]
@@ -237,10 +247,11 @@ impl Database {
         }
     }
 
-    pub fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) {
-        info!("{}: Starting thread", self.name);
+    pub async fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
+        info!("{}: Starting task", self.name);
         let mut reload_devices = true;
         let mut flush_data = Instant::now();
+        let mut influx_interval = Instant::now();
 
         let mut builder =
             SslConnector::builder(SslMethod::tls()).expect("SslConnector::builder error");
@@ -269,6 +280,11 @@ impl Database {
                             Some(id) => {
                                 let counter = self.sensor_counters.entry(id).or_insert(0 as u32);
                                 *counter += 1;
+                                if self.influxdb_url.is_some() {
+                                    let counter =
+                                        self.influx_sensor_counters.entry(id).or_insert(0 as u32);
+                                    *counter += 1;
+                                }
                             }
                             _ => {}
                         },
@@ -346,9 +362,20 @@ impl Database {
                 }
             }
 
+            //write data to influxdb if configured
+            if self.influxdb_url.is_some()
+                && !self.influx_sensor_counters.is_empty()
+                && influx_interval.elapsed().as_secs() > 10
+            {
+                debug!("flushing sensor counters to influxdb...");
+                let _ = self.influx_flush_counter_data().compat().await;
+                influx_interval = Instant::now();
+            }
+
             thread::sleep(Duration::from_millis(50));
         }
-        info!("{}: thread stopped", self.name);
+        info!("{}: task stopped", self.name);
+        Ok(())
     }
 
     fn increment_cycles(&mut self, table_name: String, id_sensor: i32, counter: u32) -> bool {
@@ -390,5 +417,30 @@ impl Database {
             !self.increment_cycles("yeelight".to_string(), id, counter)
         });
         self.yeelight_counters = flush_map;
+    }
+
+    async fn influx_flush_counter_data(&mut self) -> Result<()> {
+        // connect to influxdb
+        let client = Client::new(self.influxdb_url.as_ref().unwrap(), "hard");
+
+        // construct a write query with all sensors
+        let mut write_query = Timestamp::from(Utc::now()).into_query("sensors");
+        for (id, counter) in self.influx_sensor_counters.iter() {
+            write_query = write_query.add_field(format!("sensor-{}", id), counter);
+        }
+
+        // send query to influxdb
+        let write_result = client.query(&write_query).await;
+        match write_result {
+            Ok(msg) => {
+                debug!("{}: influxdb write success: {:?}", self.name, msg);
+                self.influx_sensor_counters.clear();
+            }
+            Err(e) => {
+                debug!("{}: influxdb write error: {:?}", self.name, e);
+            }
+        }
+
+        Ok(())
     }
 }
