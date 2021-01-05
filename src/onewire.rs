@@ -638,6 +638,7 @@ impl StateMachine {
         night: bool,
         initial_read: bool,
         pending_tasks: &mut Vec<OneWireTask>,
+        id_sensor: i32,
     ) -> bool {
         //bedroom mode handling during the night
         if !initial_read && sensor_kind_code == "PIR_Trigger" && sensor_on && night {
@@ -800,6 +801,7 @@ impl StateMachine {
         relay_tags: &Vec<String>,
         night: bool,
         _flipflop_block: bool,
+        id_relay: i32,
     ) -> bool {
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
             for tag in relay_tags {
@@ -1110,6 +1112,7 @@ impl OneWire {
                                                                 night,
                                                                 false,
                                                                 &mut pending_tasks,
+                                                                sensor.id_sensor,
                                                             );
                                                         info!(
                                                             "{}: [{} {} {}]: {:#04x} on: {}, stop_processing: {}",
@@ -1163,6 +1166,7 @@ impl OneWire {
                                                                                             &relay.tags,
                                                                                             night,
                                                                                             flipflop_block,
+                                                                                            relay.id_relay,
                                                                                         );
                                                                                 if stop_processing {
                                                                                     debug!(
@@ -1485,6 +1489,7 @@ impl OneWire {
                                                     night,
                                                     true,
                                                     &mut pending_tasks,
+                                                    sensor.id_sensor,
                                                 );
                                                 debug!(
                                                     "initial state: {}: [{} {} {}]: {:#04x} on: {}",
