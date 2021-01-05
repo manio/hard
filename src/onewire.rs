@@ -571,7 +571,7 @@ impl CesspoolLevel {
     fn got_all_sensors(&mut self) -> bool {
         self.level.iter().filter(|l| l.is_none()).count() == 0
     }
-    fn lcd_get_level(&mut self) -> u8 {
+    fn get_level_lcd(&self) -> u8 {
         self.level.iter().flatten().filter(|&x| *x == true).count() as u8
     }
 }
@@ -778,7 +778,7 @@ impl StateMachine {
                                 //inform lcdproc thread about initial/new level
                                 let task = LcdTask {
                                     command: LcdTaskCommand::SetCesspoolLevel,
-                                    int_arg: self.cesspool_level.lcd_get_level(),
+                                    int_arg: self.cesspool_level.get_level_lcd(),
                                     string_arg: None,
                                 };
                                 self.lcd_transmitter.send(task).unwrap();
