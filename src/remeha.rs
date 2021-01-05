@@ -107,7 +107,7 @@ impl SampleData {
         match code {
             0 => "Standby",
             1 => "Boiler start",
-            2 => "Burner start 🔥",
+            2 => "Burner start 🕯",
             3 => "Burning CH 🔥",
             4 => "Burning DHW 🔥",
             5 => "Burner stop",
