@@ -60,6 +60,12 @@ fn skymax_filepath() -> Option<String> {
         .and_then(|x| x.get("skymax_device").cloned())
 }
 
+fn skymax_usbid() -> Option<String> {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    conf.section(Some("general".to_owned()))
+        .and_then(|x| x.get("skymax_usbid").cloned())
+}
+
 fn skymax_mode_script() -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
     conf.section(Some("general".to_owned()))
@@ -286,6 +292,7 @@ async fn main() {
             let mut skymax = skymax::Skymax {
                 name: "skymax".to_string(),
                 device_path: path,
+                device_usbid: skymax_usbid().unwrap_or_default(),
                 poll_ok: 0,
                 poll_errors: 0,
                 influxdb_url: influxdb_url(),

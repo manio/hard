@@ -318,6 +318,7 @@ impl InverterMode {
 pub struct Skymax {
     pub name: String,
     pub device_path: String,
+    pub device_usbid: String,
     pub poll_ok: u64,
     pub poll_errors: u64,
     pub influxdb_url: Option<String>,
@@ -459,9 +460,23 @@ impl Skymax {
         Ok(name)
     }
 
+    pub fn get_first_dir_with_mask(dir: String, mask: String) -> io::Result<String> {
+        let name = fs::read_dir(&dir)?
+            .map(|res| res.map(|e| e.file_name()))
+            .filter(|d| d.as_ref().unwrap().to_string_lossy().contains(&mask))
+            .collect::<std::result::Result<Vec<_>, io::Error>>()?
+            .get(0)
+            .ok_or(Error::new(ErrorKind::Other, "Empty dir"))?
+            .to_string_lossy()
+            .to_string();
+
+        Ok(name)
+    }
+
     fn get_device_path(&self) -> Result<String> {
         //first get the device directory with its USB ID in it
-        let device_dir = Skymax::get_first_dir(self.device_path.clone())?;
+        let device_dir =
+            Skymax::get_first_dir_with_mask(self.device_path.clone(), self.device_usbid.clone())?;
 
         //now get the hidraw device name, like 'hidraw0'
         let hidraw_name =
