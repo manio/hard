@@ -490,7 +490,7 @@ impl Database {
         let client = Client::new(self.influxdb_url.as_ref().unwrap(), "hard");
 
         // construct a write query with all sensors
-        let mut write_query = Timestamp::from(Utc::now()).into_query("sensors");
+        let mut write_query = Timestamp::from(Utc::now()).into_query("counter");
         for (id, counter) in self.influx_sensor_counters.iter() {
             write_query = write_query.add_field(format!("sensor-{}", id), counter);
         }
