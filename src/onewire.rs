@@ -574,6 +574,11 @@ impl CesspoolLevel {
     fn get_level_lcd(&self) -> u8 {
         self.level.iter().flatten().filter(|&x| *x == true).count() as u8
     }
+    fn get_level_percentage(&self) -> u8 {
+        (((self.level.iter().flatten().filter(|&x| *x == true).count() as f32)
+            / self.level.len() as f32)
+            * 100f32) as u8
+    }
 }
 
 impl fmt::Display for CesspoolLevel {
@@ -607,6 +612,7 @@ pub struct StateMachine {
     pub rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
     pub cesspool_level: CesspoolLevel,
     pub lcd_transmitter: Sender<LcdTask>,
+    pub db_transmitter: Sender<DbTask>,
 }
 
 impl StateMachine {
@@ -733,6 +739,21 @@ impl StateMachine {
             if tag.contains("invert_state") {
                 sensor_on = !sensor_on;
             }
+
+            //if the sensor is tagged with 'monitor_in_influxdb' we are saving
+            //all changes to influx for such sensor
+            if tag.starts_with("monitor_in_influxdb") {
+                let cmd = match sensor_on {
+                    true => CommandCode::UpdateSensorStateOn,
+                    false => CommandCode::UpdateSensorStateOff,
+                };
+                let task = DbTask {
+                    command: cmd,
+                    value: Some(id_sensor),
+                };
+                self.db_transmitter.send(task).unwrap();
+            }
+
             // by default we trigger on sensor_on but if the tag contains
             // the 'all_changes' modifier, then trigger on all changes
             if !initial_read && !(sensor_on || tag.contains("all_changes")) {
@@ -782,6 +803,13 @@ impl StateMachine {
                                     string_arg: None,
                                 };
                                 self.lcd_transmitter.send(task).unwrap();
+
+                                //save cesspool level to influxdb
+                                let task = DbTask {
+                                    command: CommandCode::UpdateCesspoolLevel,
+                                    value: Some(self.cesspool_level.get_level_percentage() as i32),
+                                };
+                                self.db_transmitter.send(task).unwrap();
                             }
                         }
                         Err(_) => (),
@@ -813,6 +841,23 @@ impl StateMachine {
                 }
             }
         }
+
+        for tag in relay_tags {
+            //if the relay is tagged with 'monitor_in_influxdb' we are saving
+            //all changes to influx for such relay
+            if tag.starts_with("monitor_in_influxdb") {
+                let cmd = match sensor_on {
+                    true => CommandCode::UpdateRelayStateOn,
+                    false => CommandCode::UpdateRelayStateOff,
+                };
+                let task = DbTask {
+                    command: cmd,
+                    value: Some(id_relay),
+                };
+                self.db_transmitter.send(task).unwrap();
+            }
+        }
+
         true
     }
 
@@ -990,6 +1035,7 @@ impl OneWire {
             rfid_pending_tags,
             cesspool_level: CesspoolLevel { level: vec![] },
             lcd_transmitter: self.lcd_transmitter.clone(),
+            db_transmitter: self.transmitter.clone(),
         };
 
         let mut pending_tasks = vec![];

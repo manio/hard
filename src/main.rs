@@ -203,6 +203,9 @@ async fn main() {
         yeelight_counters: Default::default(),
         influx_sensor_counters: Default::default(),
         influxdb_url: influxdb_url(),
+        influx_sensor_values: Default::default(),
+        influx_relay_values: Default::default(),
+        influx_cesspool_level: None,
     };
     let worker_cancel_flag = cancel_flag.clone();
     let db_future = task::spawn(async move { db.worker(worker_cancel_flag).await });

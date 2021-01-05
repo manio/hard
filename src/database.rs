@@ -42,6 +42,9 @@ pub struct Database {
     pub yeelight_counters: HashMap<i32, u32>,
     pub influx_sensor_counters: HashMap<i32, u32>,
     pub influxdb_url: Option<String>,
+    pub influx_sensor_values: HashMap<i32, bool>,
+    pub influx_relay_values: HashMap<i32, bool>,
+    pub influx_cesspool_level: Option<u8>,
 }
 
 #[derive(Debug)]
@@ -50,6 +53,11 @@ pub enum CommandCode {
     IncrementSensorCounter,
     IncrementRelayCounter,
     IncrementYeelightCounter,
+    UpdateSensorStateOn,
+    UpdateSensorStateOff,
+    UpdateRelayStateOn,
+    UpdateRelayStateOff,
+    UpdateCesspoolLevel,
 }
 pub struct DbTask {
     pub command: CommandCode,
@@ -302,6 +310,52 @@ impl Database {
                             }
                             _ => {}
                         },
+                        CommandCode::UpdateSensorStateOn => match t.value {
+                            Some(id) => {
+                                if self.influxdb_url.is_some() {
+                                    let value =
+                                        self.influx_sensor_values.entry(id).or_insert(false);
+                                    *value = true;
+                                }
+                            }
+                            _ => {}
+                        },
+                        CommandCode::UpdateSensorStateOff => match t.value {
+                            Some(id) => {
+                                if self.influxdb_url.is_some() {
+                                    let value =
+                                        self.influx_sensor_values.entry(id).or_insert(false);
+                                    *value = false;
+                                }
+                            }
+                            _ => {}
+                        },
+                        CommandCode::UpdateRelayStateOn => match t.value {
+                            Some(id) => {
+                                if self.influxdb_url.is_some() {
+                                    let value = self.influx_relay_values.entry(id).or_insert(false);
+                                    *value = true;
+                                }
+                            }
+                            _ => {}
+                        },
+                        CommandCode::UpdateRelayStateOff => match t.value {
+                            Some(id) => {
+                                if self.influxdb_url.is_some() {
+                                    let value = self.influx_relay_values.entry(id).or_insert(false);
+                                    *value = false;
+                                }
+                            }
+                            _ => {}
+                        },
+                        CommandCode::UpdateCesspoolLevel => match t.value {
+                            Some(level) => {
+                                if self.influxdb_url.is_some() {
+                                    self.influx_cesspool_level = Some(level as u8);
+                                }
+                            }
+                            _ => {}
+                        },
                     }
                 }
                 _ => (),
@@ -371,6 +425,18 @@ impl Database {
                 let _ = self.influx_flush_counter_data().compat().await;
                 influx_interval = Instant::now();
             }
+            //write monitored sensor/relay values to influxdb
+            if self.influxdb_url.is_some()
+                && (!self.influx_sensor_values.is_empty() || !self.influx_relay_values.is_empty())
+            {
+                debug!("flushing sensor/relay values to influxdb...");
+                let _ = self.influx_flush_values_data().compat().await;
+            }
+            //write cesspool level to influxdb
+            if self.influxdb_url.is_some() && self.influx_cesspool_level.is_some() {
+                debug!("flushing cesspool level to influxdb...");
+                let _ = self.influx_flush_cesspool_level().compat().await;
+            }
 
             thread::sleep(Duration::from_millis(50));
         }
@@ -435,6 +501,62 @@ impl Database {
             Ok(msg) => {
                 debug!("{}: influxdb write success: {:?}", self.name, msg);
                 self.influx_sensor_counters.clear();
+            }
+            Err(e) => {
+                debug!("{}: influxdb write error: {:?}", self.name, e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn influx_flush_values_data(&mut self) -> Result<()> {
+        // connect to influxdb
+        let client = Client::new(self.influxdb_url.as_ref().unwrap(), "hard");
+
+        // construct a write query
+        let mut write_query = Timestamp::from(Utc::now()).into_query("state");
+        // add sensors
+        for (id, state) in self.influx_sensor_values.iter() {
+            write_query = write_query.add_field(format!("sensor-{}", id), state);
+        }
+        // add relays
+        for (id, state) in self.influx_relay_values.iter() {
+            write_query = write_query.add_field(format!("relay-{}", id), state);
+        }
+
+        // send query to influxdb
+        let write_result = client.query(&write_query).await;
+        match write_result {
+            Ok(msg) => {
+                debug!("{}: influxdb write success: {:?}", self.name, msg);
+                self.influx_sensor_values.clear();
+                self.influx_relay_values.clear();
+            }
+            Err(e) => {
+                debug!("{}: influxdb write error: {:?}", self.name, e);
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn influx_flush_cesspool_level(&mut self) -> Result<()> {
+        // connect to influxdb
+        let client = Client::new(self.influxdb_url.as_ref().unwrap(), "hard");
+
+        // construct a write query with cesspool level
+        let write_query = Timestamp::from(Utc::now()).into_query("state").add_field(
+            format!("cesspool-level"),
+            self.influx_cesspool_level.unwrap(),
+        );
+
+        // send query to influxdb
+        let write_result = client.query(&write_query).await;
+        match write_result {
+            Ok(msg) => {
+                debug!("{}: influxdb write success: {:?}", self.name, msg);
+                self.influx_cesspool_level = None;
             }
             Err(e) => {
                 debug!("{}: influxdb write error: {:?}", self.name, e);
