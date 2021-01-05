@@ -794,7 +794,12 @@ impl StateMachine {
                         Ok(index) => {
                             self.cesspool_level.level[index - 1] = Some(sensor_on);
                             if self.cesspool_level.got_all_sensors() {
-                                info!("{}: 🛢 cesspool level: {}", self.name, self.cesspool_level);
+                                info!(
+                                    "{}: 🛢 cesspool level: {} {}%",
+                                    self.name,
+                                    self.cesspool_level,
+                                    self.cesspool_level.get_level_percentage()
+                                );
 
                                 //inform lcdproc thread about initial/new level
                                 let task = LcdTask {
