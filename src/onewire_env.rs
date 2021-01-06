@@ -338,9 +338,9 @@ impl OneWireEnv {
                                                                         tag_group: None,
                                                                         duration: None, //take default
                                                                     };
-                                                                    self.ow_transmitter
-                                                                        .send(task)
-                                                                        .unwrap();
+                                                                    let _ = self
+                                                                        .ow_transmitter
+                                                                        .send(task);
                                                                 }
                                                             }
                                                         }

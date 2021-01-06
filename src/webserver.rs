@@ -30,8 +30,9 @@ pub fn fan_on(ow_transmitter: State<Arc<Mutex<Sender<OneWireTask>>>>) -> String 
         tag_group: None,
         duration: Some(Duration::from_secs(60 * 5)),
     };
-    let trans = ow_transmitter.lock().unwrap();
-    trans.send(task).unwrap();
+    if let Ok(trans) = ow_transmitter.lock() {
+        let _ = trans.send(task);
+    }
 
     "Turning ON fan".to_string()
 }
@@ -44,8 +45,9 @@ pub fn fan_off(ow_transmitter: State<Arc<Mutex<Sender<OneWireTask>>>>) -> String
         tag_group: None,
         duration: None,
     };
-    let trans = ow_transmitter.lock().unwrap();
-    trans.send(task).unwrap();
+    if let Ok(trans) = ow_transmitter.lock() {
+        let _ = trans.send(task);
+    }
 
     "Turning OFF fan".to_string()
 }

@@ -751,7 +751,7 @@ impl StateMachine {
                     command: cmd,
                     value: Some(id_sensor),
                 };
-                self.db_transmitter.send(task).unwrap();
+                let _ = self.db_transmitter.send(task);
             }
 
             // by default we trigger on sensor_on but if the tag contains
@@ -807,14 +807,14 @@ impl StateMachine {
                                     int_arg: self.cesspool_level.get_level_lcd(),
                                     string_arg: None,
                                 };
-                                self.lcd_transmitter.send(task).unwrap();
+                                let _ = self.lcd_transmitter.send(task);
 
                                 //save cesspool level to influxdb
                                 let task = DbTask {
                                     command: CommandCode::UpdateCesspoolLevel,
                                     value: Some(self.cesspool_level.get_level_percentage() as i32),
                                 };
-                                self.db_transmitter.send(task).unwrap();
+                                let _ = self.db_transmitter.send(task);
                             }
                         }
                         Err(_) => (),
@@ -859,7 +859,7 @@ impl StateMachine {
                     command: cmd,
                     value: Some(id_relay),
                 };
-                self.db_transmitter.send(task).unwrap();
+                let _ = self.db_transmitter.send(task);
             }
         }
 
@@ -980,7 +980,7 @@ impl OneWire {
             command: CommandCode::IncrementRelayCounter,
             value: Some(id_relay),
         };
-        self.transmitter.send(task).unwrap();
+        let _ = self.transmitter.send(task);
     }
 
     fn increment_yeelight_counter(&self, id_yeelight: i32) {
@@ -988,7 +988,7 @@ impl OneWire {
             command: CommandCode::IncrementYeelightCounter,
             value: Some(id_yeelight),
         };
-        self.transmitter.send(task).unwrap();
+        let _ = self.transmitter.send(task);
     }
 
     fn load_geolocation_config(&self, lat: &mut f64, lon: &mut f64) {
@@ -1146,7 +1146,7 @@ impl OneWire {
                                                                 CommandCode::IncrementSensorCounter,
                                                             value: Some(sensor.id_sensor),
                                                         };
-                                                        self.transmitter.send(task).unwrap();
+                                                        let _ = self.transmitter.send(task);
 
                                                         let kind_code = kinds_cloned
                                                             .get(&sensor.id_kind)

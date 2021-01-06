@@ -592,7 +592,7 @@ impl Skymax {
                                                     parameters.voltage_grid.unwrap_or_default()
                                                 )),
                                             };
-                                            self.lcd_transmitter.send(task).unwrap();
+                                            let _ = self.lcd_transmitter.send(task);
 
                                             //line 1: load info
                                             let task = LcdTask {
@@ -604,7 +604,7 @@ impl Skymax {
                                                     parameters.load_watt.unwrap_or_default()
                                                 )),
                                             };
-                                            self.lcd_transmitter.send(task).unwrap();
+                                            let _ = self.lcd_transmitter.send(task);
 
                                             //line 2: battery info
                                             let task = LcdTask {
@@ -616,7 +616,7 @@ impl Skymax {
                                                     parameters.voltage_batt.unwrap_or_default()
                                                 )),
                                             };
-                                            self.lcd_transmitter.send(task).unwrap();
+                                            let _ = self.lcd_transmitter.send(task);
                                         }
                                         _ => {
                                             error!(
@@ -671,7 +671,7 @@ impl Skymax {
                                                             )
                                                         )),
                                                     };
-                                                    self.lcd_transmitter.send(task).unwrap();
+                                                    let _ = self.lcd_transmitter.send(task);
 
                                                     //if we are on battery, set emergency mode
                                                     let task = LcdTask {
@@ -685,7 +685,7 @@ impl Skymax {
                                                         },
                                                         string_arg: None,
                                                     };
-                                                    self.lcd_transmitter.send(task).unwrap();
+                                                    let _ = self.lcd_transmitter.send(task);
                                                 }
                                                 inv_mode
                                             }
@@ -709,7 +709,7 @@ impl Skymax {
                                                         )
                                                     )),
                                                 };
-                                                self.lcd_transmitter.send(task).unwrap();
+                                                let _ = self.lcd_transmitter.send(task);
 
                                                 //enable/disable emergency mode
                                                 let task = LcdTask {
@@ -723,7 +723,7 @@ impl Skymax {
                                                     },
                                                     string_arg: None,
                                                 };
-                                                self.lcd_transmitter.send(task).unwrap();
+                                                let _ = self.lcd_transmitter.send(task);
 
                                                 InverterMode {
                                                     last_change: Instant::now(),
