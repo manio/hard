@@ -161,6 +161,20 @@ impl Lcdproc {
                         "📟 {}: connected to server: {}",
                         self.name, self.lcdproc_host_port
                     );
+
+                    debug!("{}: discarding all pending LcdTasks...", self.name);
+                    let mut tasks_no = 0;
+                    loop {
+                        tasks_no += 1;
+                        let elem = self.lcd_receiver.try_iter().next();
+                        if elem.is_none() {
+                            break;
+                        }
+                    }
+                    if tasks_no > 0 {
+                        info!("{}: {} LcdTasks discarded", self.name, tasks_no);
+                    }
+
                     if let Err(e) = stream.set_read_timeout(Some(Duration::from_millis(500))) {
                         error!("{}: set_read_timeout error: {:?}", self.name, e);
                         continue;
