@@ -338,12 +338,20 @@ impl Yeelight {
                             let mut raw_result = String::new();
                             let _ = reader.read_line(&mut raw_result);
 
-                            //parse json
-                            let json_res: YeelightResult =
-                                serde_json::from_str(&raw_result).unwrap();
-                            //check for correct command result
-                            if json_res.id == id && json_res.result == vec!["ok"] {
-                                break;
+                            //try to parse json
+                            match serde_json::from_str::<YeelightResult>(&raw_result) {
+                                Ok(json_res) => {
+                                    //check for correct command result
+                                    if json_res.id == id && json_res.result == vec!["ok"] {
+                                        break;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Yeelight: {}: error parsing result JSON: {:?}",
+                                        yeelight_name, e
+                                    );
+                                }
                             }
                         }
                         Err(e) => {
