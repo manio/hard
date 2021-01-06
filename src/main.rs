@@ -36,66 +36,11 @@ mod rfid;
 mod skymax;
 mod webserver;
 
-fn log_location() -> Option<String> {
+fn get_config_string(option_name: &str) -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
     conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("log").cloned())
+        .and_then(|x| x.get(option_name).cloned())
 }
-
-fn ethlcd_hostname() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("ethlcd_host").cloned())
-}
-
-fn rfid_filepath() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("rfid_event_path").cloned())
-}
-
-fn skymax_filepath() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("skymax_device").cloned())
-}
-
-fn skymax_usbid() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("skymax_usbid").cloned())
-}
-
-fn skymax_mode_script() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("skymax_mode_change_script").cloned())
-}
-
-fn remeha_state_script() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("remeha_state_change_script").cloned())
-}
-
-fn influxdb_url() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("influxdb_url").cloned())
-}
-
-fn lcdproc_host_port() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("lcdproc").cloned())
-}
-
-fn remeha_device() -> Option<String> {
-    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
-        .and_then(|x| x.get("remeha_device").cloned())
-}
-//fixme: refactor above functions
 
 fn logging_init() {
     let mut conf = Config::default();
@@ -114,7 +59,7 @@ fn logging_init() {
     loggers.push(console_logger);
 
     let mut logfile_error: Option<String> = None;
-    match log_location() {
+    match get_config_string("log") {
         Some(ref log_path) => {
             let logfile = OpenOptions::new().create(true).append(true).open(log_path);
             match logfile {
@@ -154,6 +99,7 @@ async fn main() {
     .expect("Error setting Ctrl-C handler");
 
     //common thread stuff
+    let influxdb_url = get_config_string("influxdb_url");
     let mut threads = vec![];
     let mut futures = vec![];
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -182,7 +128,7 @@ async fn main() {
     let (lcd_tx, lcd_rx): (Sender<LcdTask>, Receiver<LcdTask>) = mpsc::channel(); //lcdproc comm channel
 
     //ethlcd struct
-    let ethlcd = match ethlcd_hostname() {
+    let ethlcd = match get_config_string("ethlcd_host") {
         Some(hostname) => Some(EthLcd {
             struct_name: "ethlcd".to_string(),
             host: hostname,
@@ -208,7 +154,7 @@ async fn main() {
         relay_counters: Default::default(),
         yeelight_counters: Default::default(),
         influx_sensor_counters: Default::default(),
-        influxdb_url: influxdb_url(),
+        influxdb_url: influxdb_url.clone(),
         influx_sensor_values: Default::default(),
         influx_relay_values: Default::default(),
         influx_cesspool_level: None,
@@ -266,7 +212,7 @@ async fn main() {
     futures.push(webserver_future);
 
     //rfid thread
-    match rfid_filepath() {
+    match get_config_string("rfid_event_path") {
         Some(event_path) => {
             let rfid = rfid::Rfid {
                 name: "rfid".to_string(),
@@ -286,18 +232,18 @@ async fn main() {
     };
 
     //skymax async task
-    match skymax_filepath() {
+    match get_config_string("skymax_device") {
         Some(path) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut skymax = skymax::Skymax {
                 name: "skymax".to_string(),
                 device_path: path,
-                device_usbid: skymax_usbid().unwrap_or_default(),
+                device_usbid: get_config_string("skymax_usbid").unwrap_or_default(),
                 poll_ok: 0,
                 poll_errors: 0,
-                influxdb_url: influxdb_url(),
+                influxdb_url: influxdb_url.clone(),
                 lcd_transmitter: lcd_tx.clone(),
-                mode_change_script: skymax_mode_script(),
+                mode_change_script: get_config_string("skymax_mode_change_script"),
             };
             let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
             futures.push(skymax_future);
@@ -306,7 +252,7 @@ async fn main() {
     }
 
     //lcdproc async task
-    match lcdproc_host_port() {
+    match get_config_string("lcdproc") {
         Some(host) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut lcdproc = lcdproc::Lcdproc {
@@ -324,7 +270,7 @@ async fn main() {
     }
 
     //remeha async task
-    match remeha_device() {
+    match get_config_string("remeha_device") {
         Some(path) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut remeha = remeha::Remeha {
@@ -332,8 +278,8 @@ async fn main() {
                 device_path: path,
                 poll_ok: 0,
                 poll_errors: 0,
-                influxdb_url: influxdb_url(),
-                state_change_script: remeha_state_script(),
+                influxdb_url: influxdb_url.clone(),
+                state_change_script: get_config_string("remeha_state_change_script"),
             };
             let remeha_future = task::spawn(async move { remeha.worker(worker_cancel_flag).await });
             futures.push(remeha_future);
