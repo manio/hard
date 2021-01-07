@@ -348,8 +348,8 @@ impl Yeelight {
                                 }
                                 Err(e) => {
                                     error!(
-                                        "Yeelight: {}: error parsing result JSON: {:?}",
-                                        yeelight_name, e
+                                        "Yeelight: {}: error parsing result JSON: {:?}\nraw input data: {:?}",
+                                        yeelight_name, e, raw_result
                                     );
                                 }
                             }
