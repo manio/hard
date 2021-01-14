@@ -1267,7 +1267,7 @@ impl OneWire {
                                                                                                 } else {
                                                                                                     new_state = new_state & !(1 << i as u8);
                                                                                                     info!(
-                                                                                                        "{}: 💡 Turning ON: {}: bit={} new state: {:#04x} duration={:?}",
+                                                                                                        "{}: 💡 PIR Turning-ON: {}: bit={} new state: {:#04x} duration={:?}",
                                                                                                         get_w1_device_name(
                                                                                                             rb.ow_family,
                                                                                                             rb.ow_address
@@ -1281,24 +1281,28 @@ impl OneWire {
                                                                                                     rb.new_value = Some(new_state);
                                                                                                 }
                                                                                             } else {
+                                                                                                let toggled_elapsed = relay.last_toggled.unwrap_or(Instant::now()).elapsed();
+                                                                                                let mut prolong_secs = relay.pir_hold_secs;
+                                                                                                if relay.override_mode {
+                                                                                                    if DEFAULT_PIR_PROLONG_SECS > relay.pir_hold_secs {
+                                                                                                        prolong_secs = DEFAULT_PIR_PROLONG_SECS
+                                                                                                    };
+                                                                                                    if relay.switch_hold_secs > prolong_secs && toggled_elapsed > Duration::from_secs_f32(relay.switch_hold_secs - prolong_secs) {
+                                                                                                        relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(prolong_secs)));
+                                                                                                    }
+                                                                                                } else {
+                                                                                                    relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(prolong_secs)));
+                                                                                                }
                                                                                                 info!(
-                                                                                                    "{}: Prolonging: {}: bit={}",
+                                                                                                    "{}: PIR prolonging: {}: bit={}, duration added: {}",
                                                                                                     get_w1_device_name(
                                                                                                         rb.ow_family,
                                                                                                         rb.ow_address
                                                                                                     ),
                                                                                                     relay.name,
                                                                                                     i,
+                                                                                                    format_duration(Duration::from_secs_f32(prolong_secs)),
                                                                                                 );
-
-                                                                                                let toggled_elapsed = relay.last_toggled.unwrap_or(Instant::now()).elapsed();
-                                                                                                if relay.override_mode {
-                                                                                                    if relay.switch_hold_secs > relay.pir_hold_secs && toggled_elapsed > Duration::from_secs_f32(relay.switch_hold_secs - relay.pir_hold_secs) {
-                                                                                                        relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(relay.pir_hold_secs)));
-                                                                                                    }
-                                                                                                } else {
-                                                                                                    relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(relay.pir_hold_secs)));
-                                                                                                }
                                                                                             }
                                                                                         }
                                                                                     }
