@@ -167,7 +167,6 @@ impl Database {
                 }
 
                 info!("🦏 {}: Loading data from view 'relays'...", self.name);
-                relay_dev.relay_boards.clear();
                 for row in client.query("select * from relays", &[]).unwrap() {
                     let id_relay: i32 = row.get("id_relay");
                     let name: String = row.get("name");

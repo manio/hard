@@ -525,18 +525,73 @@ impl RelayDevices {
             relay_board.new_value = Some(new_state);
         }
 
+        let old_relay = &relay_board.relay[bit as usize];
+
         //create and attach a relay
         let relay = Relay {
             id_relay,
-            name,
+            name: name.clone(),
             tags,
             pir_exclude,
             pir_hold_secs: pir_hold_secs.unwrap_or(DEFAULT_PIR_HOLD_SECS),
             switch_hold_secs: switch_hold_secs.unwrap_or(DEFAULT_SWITCH_HOLD_SECS),
             pir_all_day,
-            override_mode: initial_state,
-            last_toggled: None,
-            stop_after: None,
+            override_mode: {
+                if let Some(old_relay) = old_relay {
+                    if old_relay.id_relay == id_relay {
+                        if old_relay.override_mode {
+                            info!(
+                                "{}: {}: 📌 override_mode preserved",
+                                name,
+                                get_w1_device_name(relay_board.ow_family, relay_board.ow_address),
+                            );
+                        };
+                        old_relay.override_mode
+                    } else {
+                        initial_state
+                    }
+                } else {
+                    initial_state
+                }
+            },
+            last_toggled: {
+                if let Some(old_relay) = old_relay {
+                    if old_relay.id_relay == id_relay {
+                        if old_relay.last_toggled.is_some() {
+                            info!(
+                                "{}: {}: 📌 last_toggled preserved ({})",
+                                get_w1_device_name(relay_board.ow_family, relay_board.ow_address),
+                                name,
+                                format_duration(old_relay.last_toggled.unwrap().elapsed()),
+                            );
+                        };
+                        old_relay.last_toggled
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            },
+            stop_after: {
+                if let Some(old_relay) = old_relay {
+                    if old_relay.id_relay == id_relay {
+                        if old_relay.stop_after.is_some() {
+                            info!(
+                                "{}: {}: 📌 stop_after preserved ({})",
+                                get_w1_device_name(relay_board.ow_family, relay_board.ow_address),
+                                name,
+                                format_duration(old_relay.stop_after.unwrap()),
+                            );
+                        };
+                        old_relay.stop_after
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            },
         };
         relay_board.relay[bit as usize] = Some(relay);
     }
