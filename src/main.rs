@@ -166,7 +166,7 @@ async fn main() {
     //creating onewire thread
     let onewire = onewire::OneWire {
         name: "onewire".to_string(),
-        transmitter: tx,
+        transmitter: tx.clone(),
         ow_receiver: ow_rx,
         lcd_transmitter: lcd_tx.clone(),
         sensor_devices: onewire_sensor_devices.clone(),
@@ -206,6 +206,7 @@ async fn main() {
     let mut webserver = webserver::WebServer {
         name: "webserver".to_string(),
         ow_transmitter: ow_tx,
+        db_transmitter: tx.clone(),
     };
     let worker_cancel_flag = cancel_flag.clone();
     let webserver_future = task::spawn(async move { webserver.worker(worker_cancel_flag).await });
