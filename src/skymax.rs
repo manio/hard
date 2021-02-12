@@ -516,239 +516,264 @@ impl Skymax {
                 self.name, device_path, self.device_path
             );
             let mut options = OpenOptions::new();
-            match options.read(true).write(true).open(&device_path).await {
-                Ok(mut file) => {
-                    info!(
-                        "{}: device opened, poll interval: {}s",
-                        self.name, SKYMAX_POLL_INTERVAL_SECS
-                    );
-                    loop {
-                        if worker_cancel_flag.load(Ordering::SeqCst) {
-                            debug!("{}: Got terminate signal from main", self.name);
-                            terminated = true;
-                        }
-
-                        if terminated
-                            || stats_interval.elapsed()
-                                > Duration::from_secs_f32(SKYMAX_STATS_DUMP_INTERVAL_SECS)
-                        {
-                            stats_interval = Instant::now();
+            let future = options.read(true).write(true).open(&device_path);
+            match timeout(Duration::from_secs(5), future).await {
+                Ok(res) => {
+                    match res {
+                        Ok(mut file) => {
                             info!(
-                                "{}: 📊 inverter query statistics: ok: {}, errors: {}",
-                                self.name, self.poll_ok, self.poll_errors
+                                "{}: device opened, poll interval: {}s",
+                                self.name, SKYMAX_POLL_INTERVAL_SECS
                             );
+                            loop {
+                                if worker_cancel_flag.load(Ordering::SeqCst) {
+                                    debug!("{}: Got terminate signal from main", self.name);
+                                    terminated = true;
+                                }
 
-                            if terminated {
-                                break;
-                            }
-                        }
+                                if terminated
+                                    || stats_interval.elapsed()
+                                        > Duration::from_secs_f32(SKYMAX_STATS_DUMP_INTERVAL_SECS)
+                                {
+                                    stats_interval = Instant::now();
+                                    info!(
+                                        "{}: 📊 inverter query statistics: ok: {}, errors: {}",
+                                        self.name, self.poll_ok, self.poll_errors
+                                    );
 
-                        if poll_interval.elapsed()
-                            > Duration::from_secs_f32(SKYMAX_POLL_INTERVAL_SECS)
-                        {
-                            poll_interval = Instant::now();
-
-                            //get general status parameters
-                            let (buffer, new_handle) =
-                                self.query_inverter(file, "QPIGS".into(), 110).await?;
-                            file = new_handle;
-                            match buffer {
-                                Some(data) => {
-                                    let params = GeneralStatusParameters::new(data.clone());
-                                    match params {
-                                        Some(parameters) => {
-                                            debug!("{}: {}", self.name, parameters);
-
-                                            //write data to influxdb if configured
-                                            match &self.influxdb_url {
-                                                Some(url) => {
-                                                    // By calling compat on the async function, everything inside it is able
-                                                    // to use Tokio 0.2 features.
-                                                    let _ = parameters
-                                                        .save_to_influxdb(url, &self.name)
-                                                        .compat()
-                                                        .await;
-                                                }
-                                                None => (),
-                                            }
-
-                                            //update lcd with new inverter data
-                                            //line 0: mode + ac voltage
-                                            let task = LcdTask {
-                                                command: LcdTaskCommand::SetLineText,
-                                                int_arg: 0,
-                                                string_arg: Some(format!(
-                                                    "{}: {}V",
-                                                    match &inverter_mode {
-                                                        Some(inv_mode) => {
-                                                            InverterMode::get_mode_description_lcd(
-                                                                inv_mode.mode,
-                                                            )
-                                                        }
-                                                        None => {
-                                                            "Unknown Mode".into()
-                                                        }
-                                                    },
-                                                    parameters.voltage_grid.unwrap_or_default()
-                                                )),
-                                            };
-                                            let _ = self.lcd_transmitter.send(task);
-
-                                            //line 1: load info
-                                            let task = LcdTask {
-                                                command: LcdTaskCommand::SetLineText,
-                                                int_arg: 1,
-                                                string_arg: Some(format!(
-                                                    "Load: {}%, {}W",
-                                                    parameters.load_percent.unwrap_or_default(),
-                                                    parameters.load_watt.unwrap_or_default()
-                                                )),
-                                            };
-                                            let _ = self.lcd_transmitter.send(task);
-
-                                            //line 2: battery info
-                                            let task = LcdTask {
-                                                command: LcdTaskCommand::SetLineText,
-                                                int_arg: 2,
-                                                string_arg: Some(format!(
-                                                    "Batt: {}%, {}V",
-                                                    parameters.batt_capacity.unwrap_or_default(),
-                                                    parameters.voltage_batt.unwrap_or_default()
-                                                )),
-                                            };
-                                            let _ = self.lcd_transmitter.send(task);
-                                        }
-                                        _ => {
-                                            error!(
-                                                "{}: QPIGS: error parsing values for data: {:02X?}",
-                                                self.name, data
-                                            );
-                                        }
+                                    if terminated {
+                                        break;
                                     }
                                 }
-                                None => {
-                                    break;
-                                }
-                            }
 
-                            //get mode
-                            let (buffer, new_handle) =
-                                self.query_inverter(file, "QMOD".into(), 5).await?;
-                            file = new_handle;
-                            match buffer {
-                                Some(data) => match data.chars().nth(0) {
-                                    Some(current_mode) => {
-                                        inverter_mode = Some(match inverter_mode {
-                                            Some(mut inv_mode) => {
-                                                if inv_mode.set_new_mode(current_mode, &self.name) {
-                                                    //run a shell script when mode has changed
-                                                    match &self.mode_change_script {
-                                                        Some(command) => {
-                                                            let mut cmd =
-                                                                command.to_string().clone();
-                                                            cmd = str::replace(
-                                                                &cmd,
-                                                                "%mode%",
-                                                                InverterMode::get_mode_description(
-                                                                    current_mode,
-                                                                ),
-                                                            );
-                                                            thread::spawn(move || {
-                                                                StateMachine::run_shell_command(cmd)
-                                                            });
+                                if poll_interval.elapsed()
+                                    > Duration::from_secs_f32(SKYMAX_POLL_INTERVAL_SECS)
+                                {
+                                    poll_interval = Instant::now();
+
+                                    //get general status parameters
+                                    let (buffer, new_handle) =
+                                        self.query_inverter(file, "QPIGS".into(), 110).await?;
+                                    file = new_handle;
+                                    match buffer {
+                                        Some(data) => {
+                                            let params = GeneralStatusParameters::new(data.clone());
+                                            match params {
+                                                Some(parameters) => {
+                                                    debug!("{}: {}", self.name, parameters);
+
+                                                    //write data to influxdb if configured
+                                                    match &self.influxdb_url {
+                                                        Some(url) => {
+                                                            // By calling compat on the async function, everything inside it is able
+                                                            // to use Tokio 0.2 features.
+                                                            let _ = parameters
+                                                                .save_to_influxdb(url, &self.name)
+                                                                .compat()
+                                                                .await;
                                                         }
-                                                        _ => (),
-                                                    };
+                                                        None => (),
+                                                    }
 
                                                     //update lcd with new inverter data
+                                                    //line 0: mode + ac voltage
                                                     let task = LcdTask {
                                                         command: LcdTaskCommand::SetLineText,
                                                         int_arg: 0,
                                                         string_arg: Some(format!(
-                                                            "new mode: {}",
-                                                            InverterMode::get_mode_description_lcd(
-                                                                current_mode
-                                                            )
+                                                            "{}: {}V",
+                                                            match &inverter_mode {
+                                                                Some(inv_mode) => {
+                                                                    InverterMode::get_mode_description_lcd(
+                                                                        inv_mode.mode,
+                                                                    )
+                                                                }
+                                                                None => {
+                                                                    "Unknown Mode".into()
+                                                                }
+                                                            },
+                                                            parameters
+                                                                .voltage_grid
+                                                                .unwrap_or_default()
                                                         )),
                                                     };
                                                     let _ = self.lcd_transmitter.send(task);
 
-                                                    //if we are on battery, set emergency mode
+                                                    //line 1: load info
                                                     let task = LcdTask {
-                                                        command: LcdTaskCommand::SetEmergencyMode,
-                                                        int_arg: {
-                                                            if current_mode == 'B' {
-                                                                1
-                                                            } else {
-                                                                0
-                                                            }
-                                                        },
-                                                        string_arg: None,
+                                                        command: LcdTaskCommand::SetLineText,
+                                                        int_arg: 1,
+                                                        string_arg: Some(format!(
+                                                            "Load: {}%, {}W",
+                                                            parameters
+                                                                .load_percent
+                                                                .unwrap_or_default(),
+                                                            parameters
+                                                                .load_watt
+                                                                .unwrap_or_default()
+                                                        )),
+                                                    };
+                                                    let _ = self.lcd_transmitter.send(task);
+
+                                                    //line 2: battery info
+                                                    let task = LcdTask {
+                                                        command: LcdTaskCommand::SetLineText,
+                                                        int_arg: 2,
+                                                        string_arg: Some(format!(
+                                                            "Batt: {}%, {}V",
+                                                            parameters
+                                                                .batt_capacity
+                                                                .unwrap_or_default(),
+                                                            parameters
+                                                                .voltage_batt
+                                                                .unwrap_or_default()
+                                                        )),
                                                     };
                                                     let _ = self.lcd_transmitter.send(task);
                                                 }
-                                                inv_mode
-                                            }
-                                            None => {
-                                                info!(
-                                                    "{}: inverter mode: {}",
-                                                    self.name,
-                                                    InverterMode::get_mode_description(
-                                                        current_mode
-                                                    )
-                                                );
-
-                                                //update lcd with new inverter data
-                                                let task = LcdTask {
-                                                    command: LcdTaskCommand::SetLineText,
-                                                    int_arg: 0,
-                                                    string_arg: Some(format!(
-                                                        "new mode: {}",
-                                                        InverterMode::get_mode_description_lcd(
-                                                            current_mode
-                                                        )
-                                                    )),
-                                                };
-                                                let _ = self.lcd_transmitter.send(task);
-
-                                                //enable/disable emergency mode
-                                                let task = LcdTask {
-                                                    command: LcdTaskCommand::SetEmergencyMode,
-                                                    int_arg: {
-                                                        if current_mode == 'B' {
-                                                            1
-                                                        } else {
-                                                            0
-                                                        }
-                                                    },
-                                                    string_arg: None,
-                                                };
-                                                let _ = self.lcd_transmitter.send(task);
-
-                                                InverterMode {
-                                                    last_change: Instant::now(),
-                                                    mode: current_mode,
+                                                _ => {
+                                                    error!(
+                                                        "{}: QPIGS: error parsing values for data: {:02X?}",
+                                                        self.name, data
+                                                    );
                                                 }
                                             }
-                                        });
+                                        }
+                                        None => {
+                                            break;
+                                        }
                                     }
-                                    None => {
-                                        error!("{}: error parsing mode (no input data)", self.name);
+
+                                    //get mode
+                                    let (buffer, new_handle) =
+                                        self.query_inverter(file, "QMOD".into(), 5).await?;
+                                    file = new_handle;
+                                    match buffer {
+                                        Some(data) => match data.chars().nth(0) {
+                                            Some(current_mode) => {
+                                                inverter_mode = Some(match inverter_mode {
+                                                    Some(mut inv_mode) => {
+                                                        if inv_mode
+                                                            .set_new_mode(current_mode, &self.name)
+                                                        {
+                                                            //run a shell script when mode has changed
+                                                            match &self.mode_change_script {
+                                                                Some(command) => {
+                                                                    let mut cmd =
+                                                                        command.to_string().clone();
+                                                                    cmd = str::replace(
+                                                                        &cmd,
+                                                                        "%mode%",
+                                                                        InverterMode::get_mode_description(
+                                                                            current_mode,
+                                                                        ),
+                                                                    );
+                                                                    thread::spawn(move || {
+                                                                        StateMachine::run_shell_command(cmd)
+                                                                    });
+                                                                }
+                                                                _ => (),
+                                                            };
+
+                                                            //update lcd with new inverter data
+                                                            let task = LcdTask {
+                                                                command: LcdTaskCommand::SetLineText,
+                                                                int_arg: 0,
+                                                                string_arg: Some(format!(
+                                                                    "new mode: {}",
+                                                                    InverterMode::get_mode_description_lcd(
+                                                                        current_mode
+                                                                    )
+                                                                )),
+                                                            };
+                                                            let _ = self.lcd_transmitter.send(task);
+
+                                                            //if we are on battery, set emergency mode
+                                                            let task = LcdTask {
+                                                                command:
+                                                                    LcdTaskCommand::SetEmergencyMode,
+                                                                int_arg: {
+                                                                    if current_mode == 'B' {
+                                                                        1
+                                                                    } else {
+                                                                        0
+                                                                    }
+                                                                },
+                                                                string_arg: None,
+                                                            };
+                                                            let _ = self.lcd_transmitter.send(task);
+                                                        }
+                                                        inv_mode
+                                                    }
+                                                    None => {
+                                                        info!(
+                                                            "{}: inverter mode: {}",
+                                                            self.name,
+                                                            InverterMode::get_mode_description(
+                                                                current_mode
+                                                            )
+                                                        );
+
+                                                        //update lcd with new inverter data
+                                                        let task = LcdTask {
+                                                            command: LcdTaskCommand::SetLineText,
+                                                            int_arg: 0,
+                                                            string_arg: Some(format!(
+                                                                "new mode: {}",
+                                                                InverterMode::get_mode_description_lcd(
+                                                                    current_mode
+                                                                )
+                                                            )),
+                                                        };
+                                                        let _ = self.lcd_transmitter.send(task);
+
+                                                        //enable/disable emergency mode
+                                                        let task = LcdTask {
+                                                            command:
+                                                                LcdTaskCommand::SetEmergencyMode,
+                                                            int_arg: {
+                                                                if current_mode == 'B' {
+                                                                    1
+                                                                } else {
+                                                                    0
+                                                                }
+                                                            },
+                                                            string_arg: None,
+                                                        };
+                                                        let _ = self.lcd_transmitter.send(task);
+
+                                                        InverterMode {
+                                                            last_change: Instant::now(),
+                                                            mode: current_mode,
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                            None => {
+                                                error!(
+                                                    "{}: error parsing mode (no input data)",
+                                                    self.name
+                                                );
+                                            }
+                                        },
+                                        None => {
+                                            break;
+                                        }
                                     }
-                                },
-                                None => {
-                                    break;
                                 }
+
+                                thread::sleep(Duration::from_millis(30));
                             }
                         }
-
-                        thread::sleep(Duration::from_millis(30));
+                        Err(e) => {
+                            error!("{}: error opening device: {:?}", self.name, e);
+                            thread::sleep(Duration::from_secs(10));
+                            continue;
+                        }
                     }
                 }
                 Err(e) => {
-                    error!("{}: error opening device: {:?}", self.name, e);
-                    thread::sleep(Duration::from_secs(10));
-                    continue;
+                    error!("{}: file open timeout: {}", self.name, e);
                 }
             }
             thread::sleep(Duration::from_millis(30));
