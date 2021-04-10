@@ -345,7 +345,7 @@ impl RemehaState {
         failure_code: u8,
         error_code: u8,
     ) -> bool {
-        let mut changed = false;
+        let mut failure = false;
         if self.status_code != status_code {
             info!(
                 "{}: Status changed from {}: {:?} to {}: {:?}",
@@ -356,7 +356,6 @@ impl RemehaState {
                 SampleData::get_status_code_description(status_code),
             );
             self.status_code = status_code;
-            changed = true;
         }
         if self.substatus_code != substatus_code {
             info!(
@@ -368,7 +367,6 @@ impl RemehaState {
                 SampleData::get_substatus_code_description(substatus_code),
             );
             self.substatus_code = substatus_code;
-            changed = true;
         }
         if self.failure_code != failure_code {
             info!(
@@ -380,7 +378,7 @@ impl RemehaState {
                 SampleData::get_failure_code_description(failure_code),
             );
             self.failure_code = failure_code;
-            changed = true;
+            failure = true;
         }
         if self.error_code != error_code {
             info!(
@@ -392,9 +390,9 @@ impl RemehaState {
                 SampleData::get_error_code_description(error_code),
             );
             self.error_code = error_code;
-            changed = true;
+            failure = true;
         }
-        changed
+        failure
     }
 
     fn show_status(&self, thread_name: &String) {
