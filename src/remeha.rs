@@ -688,11 +688,32 @@ impl Remeha {
                                                                 cmd = str::replace(
                                                                     &cmd,
                                                                     "%state%",
-                                                                    &format!("Failure/Locking: {}: {:?}\nError/Blocking: {}: {:?}",
-                                                                             sample.failure_code,
-                                                                             SampleData::get_failure_code_description(sample.failure_code),
-                                                                             sample.error_code,
-                                                                             SampleData::get_error_code_description(sample.error_code),
+                                                                    &format!(
+                                                                        "{}{}",
+                                                                        {
+                                                                            if sample.failure_code
+                                                                                != 255
+                                                                            {
+                                                                                format!("\nFailure/Locking: {}: {:?}",
+                                                                                        sample.failure_code,
+                                                                                        SampleData::get_failure_code_description(sample.failure_code),
+                                                                                )
+                                                                            } else {
+                                                                                "".to_string()
+                                                                            }
+                                                                        },
+                                                                        {
+                                                                            if sample.error_code
+                                                                                != 255
+                                                                            {
+                                                                                format!("\nError/Blocking: {}: {:?}",
+                                                                                        sample.error_code,
+                                                                                        SampleData::get_error_code_description(sample.error_code),
+                                                                                )
+                                                                            } else {
+                                                                                "".to_string()
+                                                                            }
+                                                                        },
                                                                     ),
                                                                 );
                                                                 thread::spawn(move || {
