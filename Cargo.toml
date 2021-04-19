@@ -20,7 +20,7 @@ rocket = { git = "https://github.com/SergioBenitez/Rocket", features = ["tls"] }
 sun = "0.2"
 evdev = "0.10.1"
 futures = "0.3"
-tokio = { version = "0.3.5", features = ["full"] }
+tokio = { version = "1.5.0", features = ["full"] }
 crc16 = "0.4.0"
 influxdb = { version = "0.3.0", features = ["derive"] }
 chrono = { version = "0.4.11", features = ["serde"] }

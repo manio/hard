@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use termios::*;
 use tokio::fs::File;
 use tokio::fs::OpenOptions;
-use tokio::prelude::*;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 use tokio_compat_02::FutureExt;
 
