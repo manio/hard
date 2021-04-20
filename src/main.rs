@@ -26,6 +26,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::task;
 
+mod asyncfile;
 mod database;
 mod ethlcd;
 mod lcdproc;
