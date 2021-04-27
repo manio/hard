@@ -27,3 +27,4 @@ chrono = { version = "0.4.11", features = ["serde"] }
 tokio-compat-02 = "0.1"
 humantime = "2.0.1"
 termios = "0.3.3"
+tokio-modbus = { version = "*", default-features = false, features = ["tcp"] }

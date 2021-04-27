@@ -853,7 +853,7 @@ dependencies = [
  "indexmap",
  "slab",
  "tokio 0.2.24",
- "tokio-util",
+ "tokio-util 0.3.1",
  "tracing",
  "tracing-futures",
 ]
@@ -882,6 +882,7 @@ dependencies = [
  "termios",
  "tokio 1.5.0",
  "tokio-compat-02",
+ "tokio-modbus",
 ]
 
 [[package]]
@@ -2573,6 +2574,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-modbus"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0ae5e831be81aac27377e733f3332ea0928a733781951f4cc5c78d8fcce078c"
+dependencies = [
+ "byteorder",
+ "bytes 0.5.6",
+ "futures-util",
+ "log",
+ "smallvec",
+ "tokio 0.2.24",
+ "tokio-util 0.2.0",
+]
+
+[[package]]
 name = "tokio-openssl"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2601,7 +2617,7 @@ dependencies = [
  "postgres-protocol",
  "postgres-types",
  "tokio 0.2.24",
- "tokio-util",
+ "tokio-util 0.3.1",
 ]
 
 [[package]]
@@ -2623,6 +2639,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a70f4fcd7b3b24fb194f837560168208f669ca8cb70d0c4b862944452396343"
 dependencies = [
  "native-tls",
+ "tokio 0.2.24",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "571da51182ec208780505a32528fc5512a8fe1443ab960b3f2f3ef093cd16930"
+dependencies = [
+ "bytes 0.5.6",
+ "futures-core",
+ "futures-sink",
+ "log",
+ "pin-project-lite 0.1.11",
  "tokio 0.2.24",
 ]
 
