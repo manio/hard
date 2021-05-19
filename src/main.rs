@@ -37,9 +37,9 @@ mod rfid;
 mod skymax;
 mod webserver;
 
-fn get_config_string(option_name: &str) -> Option<String> {
+fn get_config_string(option_name: &str, section: Option<&str>) -> Option<String> {
     let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-    conf.section(Some("general".to_owned()))
+    conf.section(Some(section.unwrap_or("general").to_owned()))
         .and_then(|x| x.get(option_name).cloned())
 }
 
@@ -60,7 +60,7 @@ fn logging_init() {
     loggers.push(console_logger);
 
     let mut logfile_error: Option<String> = None;
-    match get_config_string("log") {
+    match get_config_string("log", None) {
         Some(ref log_path) => {
             let logfile = OpenOptions::new().create(true).append(true).open(log_path);
             match logfile {
@@ -100,7 +100,7 @@ async fn main() {
     .expect("Error setting Ctrl-C handler");
 
     //common thread stuff
-    let influxdb_url = get_config_string("influxdb_url");
+    let influxdb_url = get_config_string("influxdb_url", None);
     let mut threads = vec![];
     let mut futures = vec![];
     let cancel_flag = Arc::new(AtomicBool::new(false));
@@ -129,7 +129,7 @@ async fn main() {
     let (lcd_tx, lcd_rx): (Sender<LcdTask>, Receiver<LcdTask>) = mpsc::channel(); //lcdproc comm channel
 
     //ethlcd struct
-    let ethlcd = match get_config_string("ethlcd_host") {
+    let ethlcd = match get_config_string("ethlcd_host", None) {
         Some(hostname) => Some(EthLcd {
             struct_name: "ethlcd".to_string(),
             host: hostname,
@@ -214,7 +214,7 @@ async fn main() {
     futures.push(webserver_future);
 
     //rfid thread
-    match get_config_string("rfid_event_path") {
+    match get_config_string("rfid_event_path", None) {
         Some(event_path) => {
             let rfid = rfid::Rfid {
                 name: "rfid".to_string(),
@@ -234,18 +234,18 @@ async fn main() {
     };
 
     //skymax async task
-    match get_config_string("skymax_device") {
+    match get_config_string("skymax_device", None) {
         Some(path) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut skymax = skymax::Skymax {
                 name: "skymax".to_string(),
                 device_path: path,
-                device_usbid: get_config_string("skymax_usbid").unwrap_or_default(),
+                device_usbid: get_config_string("skymax_usbid", None).unwrap_or_default(),
                 poll_ok: 0,
                 poll_errors: 0,
                 influxdb_url: influxdb_url.clone(),
                 lcd_transmitter: lcd_tx.clone(),
-                mode_change_script: get_config_string("skymax_mode_change_script"),
+                mode_change_script: get_config_string("skymax_mode_change_script", None),
             };
             let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
             futures.push(skymax_future);
@@ -254,7 +254,7 @@ async fn main() {
     }
 
     //lcdproc async task
-    match get_config_string("lcdproc") {
+    match get_config_string("lcdproc", None) {
         Some(host) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut lcdproc = lcdproc::Lcdproc {
@@ -272,7 +272,7 @@ async fn main() {
     }
 
     //remeha async task
-    match get_config_string("remeha_device") {
+    match get_config_string("remeha_device", None) {
         Some(path) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut remeha = remeha::Remeha {
@@ -281,7 +281,7 @@ async fn main() {
                 poll_ok: 0,
                 poll_errors: 0,
                 influxdb_url: influxdb_url.clone(),
-                state_change_script: get_config_string("remeha_state_change_script"),
+                state_change_script: get_config_string("remeha_state_change_script", None),
             };
             let remeha_future = task::spawn(async move { remeha.worker(worker_cancel_flag).await });
             futures.push(remeha_future);
