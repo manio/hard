@@ -43,6 +43,22 @@ fn get_config_string(option_name: &str, section: Option<&str>) -> Option<String>
         .and_then(|x| x.get(option_name).cloned())
 }
 
+fn get_config_bool(option_name: &str, section: Option<&str>) -> bool {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    let value = conf
+        .section(Some(section.unwrap_or("general").to_owned()))
+        .and_then(|x| x.get(option_name).cloned());
+    match value {
+        Some(val) => match val.trim() {
+            "yes" => true,
+            "true" => true,
+            "1" => true,
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 fn logging_init() {
     let mut conf = Config::default();
     conf.time_format = Some("%F, %H:%M:%S%.3f");
