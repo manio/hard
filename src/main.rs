@@ -156,80 +156,87 @@ async fn main() {
         _ => None,
     };
 
-    //creating db task
-    let mut db = database::Database {
-        name: "postgres".to_string(),
-        host: None,
-        dbname: None,
-        username: None,
-        password: None,
-        receiver: rx,
-        conn: None,
-        sensor_devices: onewire_sensor_devices.clone(),
-        relay_devices: onewire_relay_devices.clone(),
-        env_sensor_devices: onewire_env_sensor_devices.clone(),
-        rfid_tags: onewire_rfid_tags.clone(),
-        sensor_counters: Default::default(),
-        relay_counters: Default::default(),
-        yeelight_counters: Default::default(),
-        influx_sensor_counters: Default::default(),
-        influxdb_url: influxdb_url.clone(),
-        influx_sensor_values: Default::default(),
-        influx_relay_values: Default::default(),
-        influx_cesspool_level: None,
-    };
-    let worker_cancel_flag = cancel_flag.clone();
-    let db_future = task::spawn(async move { db.worker(worker_cancel_flag).await });
-    futures.push(db_future);
+    if !get_config_bool("disable_postgres", None) {
+        //creating db task
+        let mut db = database::Database {
+            name: "postgres".to_string(),
+            host: None,
+            dbname: None,
+            username: None,
+            password: None,
+            receiver: rx,
+            conn: None,
+            sensor_devices: onewire_sensor_devices.clone(),
+            relay_devices: onewire_relay_devices.clone(),
+            env_sensor_devices: onewire_env_sensor_devices.clone(),
+            rfid_tags: onewire_rfid_tags.clone(),
+            sensor_counters: Default::default(),
+            relay_counters: Default::default(),
+            yeelight_counters: Default::default(),
+            influx_sensor_counters: Default::default(),
+            influxdb_url: influxdb_url.clone(),
+            influx_sensor_values: Default::default(),
+            influx_relay_values: Default::default(),
+            influx_cesspool_level: None,
+        };
+        let worker_cancel_flag = cancel_flag.clone();
+        let db_future = task::spawn(async move { db.worker(worker_cancel_flag).await });
+        futures.push(db_future);
+    }
 
-    //creating onewire thread
-    let onewire = onewire::OneWire {
-        name: "onewire".to_string(),
-        transmitter: tx.clone(),
-        ow_receiver: ow_rx,
-        lcd_transmitter: lcd_tx.clone(),
-        sensor_devices: onewire_sensor_devices.clone(),
-        relay_devices: onewire_relay_devices.clone(),
-    };
-    let worker_cancel_flag = cancel_flag.clone();
-    let thread_builder = thread::Builder::new().name("onewire".into()); //thread name
-    let rfid_pending_tags_cloned = onewire_rfid_pending_tags.clone();
-    let thread_handler = thread_builder
-        .spawn(move || {
-            onewire.worker(
-                worker_cancel_flag,
-                ethlcd,
-                onewire_rfid_tags.clone(),
-                rfid_pending_tags_cloned,
-            );
-        })
-        .unwrap();
-    threads.push(thread_handler);
+    if !get_config_bool("disable_onewire", None) {
+        //creating onewire thread
+        let onewire = onewire::OneWire {
+            name: "onewire".to_string(),
+            transmitter: tx.clone(),
+            ow_receiver: ow_rx,
+            lcd_transmitter: lcd_tx.clone(),
+            sensor_devices: onewire_sensor_devices.clone(),
+            relay_devices: onewire_relay_devices.clone(),
+        };
+        let worker_cancel_flag = cancel_flag.clone();
+        let thread_builder = thread::Builder::new().name("onewire".into()); //thread name
+        let rfid_pending_tags_cloned = onewire_rfid_pending_tags.clone();
+        let thread_handler = thread_builder
+            .spawn(move || {
+                onewire.worker(
+                    worker_cancel_flag,
+                    ethlcd,
+                    onewire_rfid_tags.clone(),
+                    rfid_pending_tags_cloned,
+                );
+            })
+            .unwrap();
+        threads.push(thread_handler);
 
-    //creating onewire_env thread
-    let onewire_env = onewire_env::OneWireEnv {
-        name: "onewire_env".to_string(),
-        ow_transmitter: ow_tx.clone(),
-        env_sensor_devices: onewire_env_sensor_devices.clone(),
-    };
-    let worker_cancel_flag = cancel_flag.clone();
-    let thread_builder = thread::Builder::new().name("onewire_env".into()); //thread name
-    let thread_handler = thread_builder
-        .spawn(move || {
-            onewire_env.worker(worker_cancel_flag);
-        })
-        .unwrap();
-    threads.push(thread_handler);
+        //creating onewire_env thread
+        let onewire_env = onewire_env::OneWireEnv {
+            name: "onewire_env".to_string(),
+            ow_transmitter: ow_tx.clone(),
+            env_sensor_devices: onewire_env_sensor_devices.clone(),
+        };
+        let worker_cancel_flag = cancel_flag.clone();
+        let thread_builder = thread::Builder::new().name("onewire_env".into()); //thread name
+        let thread_handler = thread_builder
+            .spawn(move || {
+                onewire_env.worker(worker_cancel_flag);
+            })
+            .unwrap();
+        threads.push(thread_handler);
+    }
 
-    //creating webserver task
-    let mut webserver = webserver::WebServer {
-        name: "webserver".to_string(),
-        ow_transmitter: ow_tx,
-        db_transmitter: tx.clone(),
-    };
-    let worker_cancel_flag = cancel_flag.clone();
-    let webserver_future = task::spawn(async move { webserver.worker(worker_cancel_flag).await });
-    futures.push(webserver_future);
+    if !get_config_bool("disable_webserver", None) {
+        //creating webserver task
+        let mut webserver = webserver::WebServer {
+            name: "webserver".to_string(),
+            ow_transmitter: ow_tx,
+            db_transmitter: tx.clone(),
+        };
+        let worker_cancel_flag = cancel_flag.clone();
+        let webserver_future =
+            task::spawn(async move { webserver.worker(worker_cancel_flag).await });
+        futures.push(webserver_future);
+    }
 
     //rfid thread
     match get_config_string("rfid_event_path", None) {
