@@ -911,8 +911,12 @@ impl Sun2000 {
                     match &p.value {
                         ParamKind::Text(_) => {
                             let bytes: Vec<u8> = data.iter().fold(vec![], |mut x, elem| {
-                                x.push((elem >> 8) as u8);
-                                x.push((elem & 0xff) as u8);
+                                if (elem >> 8) as u8 != 0 {
+                                    x.push((elem >> 8) as u8);
+                                }
+                                if (elem & 0xff) as u8 != 0 {
+                                    x.push((elem & 0xff) as u8);
+                                }
                                 x
                             });
                             let id = String::from_utf8(bytes).unwrap();
