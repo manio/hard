@@ -25,6 +25,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::task;
+use tokio_compat_02::FutureExt;
 
 mod asyncfile;
 mod database;
@@ -35,6 +36,7 @@ mod onewire_env;
 mod remeha;
 mod rfid;
 mod skymax;
+mod sun2000;
 mod webserver;
 
 fn get_config_string(option_name: &str, section: Option<&str>) -> Option<String> {
@@ -265,6 +267,28 @@ async fn main() {
             };
             let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
             futures.push(skymax_future);
+        }
+        _ => {}
+    }
+
+    //sun2000 async task
+    match get_config_string("host", Some("sun2000")) {
+        Some(host) => {
+            let worker_cancel_flag = cancel_flag.clone();
+            let mut sun2000 = sun2000::Sun2000 {
+                name: "sun2000".to_string(),
+                host_port: host,
+                poll_ok: 0,
+                poll_errors: 0,
+                influxdb_url: influxdb_url.clone(),
+                lcd_transmitter: lcd_tx.clone(),
+                mode_change_script: get_config_string("mode_change_script", Some("sun2000")),
+                optimizers: get_config_bool("optimizers", Some("sun2000")),
+                battery_installed: get_config_bool("battery_installed", Some("sun2000")),
+            };
+            let sun2000_future =
+                task::spawn(async move { sun2000.worker(worker_cancel_flag).compat().await });
+            futures.push(sun2000_future);
         }
         _ => {}
     }
