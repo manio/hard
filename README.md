@@ -9,7 +9,7 @@ Features:
 - light/appliances control using Maxim/Dallas One Wire DS2413 sensor boards and [DS2408 relay boards](https://skyboo.net/2017/03/controlling-relay-board-with-ds2408-over-1-wire/)
 - DS1820 temperature sensor reading
 - automatic night-mode based on current sun position
-- [postgres](https://www.postgresql.org/) connection for holding information about all sensors and it's relations
+- [PostgreSQL](https://www.postgresql.org/) connection for holding information about all sensors and it's relations
 - [InfluxDB](https://www.influxdata.com/products/influxdb/) Time Series Database support for collecting misc stats
 - PIR sensors / alarm control
 - [Yeelight](https://www.yeelight.com/) LED Smart Bulb on/off control
@@ -21,12 +21,12 @@ Features:
   - direct [ethlcd](http://manio.skyboo.net/ethlcd/) device connection for beeping
   - [LCDproc](http://lcdproc.omnipotent.net/) client
 - USB RFID reader and tags support for specified actions
-- skymax (aka VoltronicPower) inverter support
+- skymax (aka [Voltronic Power](https://voltronicpower.com/)) inverter support
 - remeha (aka De Dietrich) boiler support
 - Huawei SUN2000 inverter support
 
-The daemon is running on my Raspberry Pi in a specific minimal ramdisk environment:
+The daemon is running on my Raspberry Pi in a specific minimal ramdisk environment:<br>
 https://skyboo.net/2017/04/rpi-creating-a-ram-disk-running-linux-environment-from-nfs-booted-raspbian/
 
-You can read more about elements of the system on my blog:
+You can read more about elements of the system on my blog:<br>
 https://skyboo.net/
