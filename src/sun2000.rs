@@ -1,4 +1,5 @@
 use crate::lcdproc::LcdTask;
+use chrono::{Local, LocalResult, NaiveDateTime, TimeZone};
 use influxdb::{Client, InfluxDbWriteable, Timestamp};
 use std::fmt;
 use std::io;
@@ -141,7 +142,22 @@ impl Parameter {
                 return if self.gain != 1 {
                     (v.clone().unwrap() as f32 / self.gain as f32).to_string()
                 } else {
-                    v.clone().unwrap().to_string()
+                    if self.unit.unwrap_or_default() == "epoch" {
+                        match *v {
+                            Some(epoch_secs) => {
+                                let naive = NaiveDateTime::from_timestamp(epoch_secs as i64, 0);
+                                match Local.from_local_datetime(&naive) {
+                                    LocalResult::Single(dt) => {
+                                        format!("{}, {:?}", epoch_secs, dt.to_rfc2822())
+                                    }
+                                    _ => "timestamp conversion error".into(),
+                                }
+                            }
+                            None => "None".into(),
+                        }
+                    } else {
+                        v.clone().unwrap().to_string()
+                    }
                 }
             }
             ParamKind::NumberI32(v) => {
@@ -907,7 +923,7 @@ impl Sun2000 {
             debug!("-> obtaining {} ({:?})...", p.name, p.desc);
             match ctx.read_holding_registers(p.reg_address, p.len).await {
                 Ok(data) => {
-                    let val;
+                    let mut val;
                     match &p.value {
                         ParamKind::Text(_) => {
                             let bytes: Vec<u8> = data.iter().fold(vec![], |mut x, elem| {
@@ -934,6 +950,10 @@ impl Sun2000 {
                             let new_val: u32 = ((data[0] as u32) << 16) | data[1] as u32;
                             debug!("-> {} = {:X?} {:X}", p.name, data, new_val);
                             val = ParamKind::NumberU32(Some(new_val));
+                            if p.unit.unwrap_or_default() == "epoch" && new_val == 0 {
+                                //zero epoch makes no sense, let's set it to None
+                                val = ParamKind::NumberU32(None);
+                            }
                         }
                         ParamKind::NumberI32(_) => {
                             let new_val: i32 = ((data[0] as i32) << 16) | (data[1] as u32) as i32;
