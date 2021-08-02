@@ -799,6 +799,7 @@ pub struct Sun2000 {
     pub mode_change_script: Option<String>,
     pub optimizers: bool,
     pub battery_installed: bool,
+    pub dongle_connection: bool,
 }
 
 impl Sun2000 {
@@ -1007,8 +1008,14 @@ impl Sun2000 {
 
             let socket_addr = self.host_port.parse().unwrap();
 
-            //Slave ID: it has to be 0x00, otherwise the inverter is not responding
-            let slave = Slave(0x00);
+            let slave;
+            if self.dongle_connection {
+                //USB dongle connection: Slave ID has to be 0x01
+                slave = Slave(0x01);
+            } else {
+                //internal wifi: Slave ID has to be 0x00, otherwise the inverter is not responding
+                slave = Slave(0x00);
+            }
 
             info!("{}: connecting to {}...", self.name, self.host_port);
             match tcp::connect_slave(socket_addr, slave).await {
