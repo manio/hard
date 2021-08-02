@@ -103,7 +103,7 @@ fn logging_init() {
     }
 }
 
-#[tokio::main(worker_threads = 4)]
+#[tokio::main(worker_threads = 5)]
 async fn main() {
     let started = Instant::now();
     logging_init();
