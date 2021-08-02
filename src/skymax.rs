@@ -576,10 +576,10 @@ impl Skymax {
                                                     }
 
                                                     //update lcd with new inverter data
-                                                    //line 0: mode + ac voltage
+                                                    //line 1: mode + ac voltage
                                                     let task = LcdTask {
                                                         command: LcdTaskCommand::SetLineText,
-                                                        int_arg: 0,
+                                                        int_arg: 1,
                                                         string_arg: Some(format!(
                                                             "{}: {}V",
                                                             match &inverter_mode {
@@ -599,10 +599,10 @@ impl Skymax {
                                                     };
                                                     let _ = self.lcd_transmitter.send(task);
 
-                                                    //line 1: load info
+                                                    //line 2: load info
                                                     let task = LcdTask {
                                                         command: LcdTaskCommand::SetLineText,
-                                                        int_arg: 1,
+                                                        int_arg: 2,
                                                         string_arg: Some(format!(
                                                             "Load: {}%, {}W",
                                                             parameters
@@ -615,6 +615,7 @@ impl Skymax {
                                                     };
                                                     let _ = self.lcd_transmitter.send(task);
 
+                                                    /*
                                                     //line 2: battery info
                                                     let task = LcdTask {
                                                         command: LcdTaskCommand::SetLineText,
@@ -630,6 +631,7 @@ impl Skymax {
                                                         )),
                                                     };
                                                     let _ = self.lcd_transmitter.send(task);
+                                                    */
                                                 }
                                                 _ => {
                                                     error!(
