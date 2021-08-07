@@ -1,6 +1,6 @@
 use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use chrono::{Local, LocalResult, NaiveDateTime, TimeZone};
-use influxdb::{Client, InfluxDbWriteable, Timestamp};
+use influxdb::{Client, InfluxDbWriteable, Timestamp, Type};
 use std::fmt;
 use std::io;
 use std::ops::Add;
@@ -165,6 +165,42 @@ impl Parameter {
                     (v.clone().unwrap() as f32 / self.gain as f32).to_string()
                 } else {
                     v.clone().unwrap().to_string()
+                }
+            }
+        }
+    }
+
+    pub fn get_influx_value(&self) -> influxdb::Type {
+        match &self.value {
+            ParamKind::Text(v) => {
+                return Type::Text(v.clone().unwrap());
+            }
+            ParamKind::NumberU16(v) => {
+                return if self.gain != 1 {
+                    Type::Float(v.clone().unwrap() as f64 / self.gain as f64)
+                } else {
+                    Type::UnsignedInteger(v.clone().unwrap() as u64)
+                }
+            }
+            ParamKind::NumberI16(v) => {
+                return if self.gain != 1 {
+                    Type::Float(v.clone().unwrap() as f64 / self.gain as f64)
+                } else {
+                    Type::SignedInteger(v.clone().unwrap() as i64)
+                }
+            }
+            ParamKind::NumberU32(v) => {
+                return if self.gain != 1 {
+                    Type::Float(v.clone().unwrap() as f64 / self.gain as f64)
+                } else {
+                    Type::UnsignedInteger(v.clone().unwrap() as u64)
+                }
+            }
+            ParamKind::NumberI32(v) => {
+                return if self.gain != 1 {
+                    Type::Float(v.clone().unwrap() as f64 / self.gain as f64)
+                } else {
+                    Type::SignedInteger(v.clone().unwrap() as i64)
                 }
             }
         }
@@ -894,7 +930,7 @@ impl Sun2000 {
         let mut query = Timestamp::Milliseconds(since_the_epoch).into_query("params");
         //add all values
         for p in params.into_iter().filter(|s| s.save_to_influx) {
-            query = query.add_field(&p.name, p.get_text_value());
+            query = query.add_field(&p.name, p.get_influx_value());
         }
 
         match client.query(&query).await {
