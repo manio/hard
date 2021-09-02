@@ -958,7 +958,18 @@ impl Sun2000 {
             .filter(|s| s.initial_read == initial_read)
         {
             debug!("-> obtaining {} ({:?})...", p.name, p.desc);
-            match ctx.read_holding_registers(p.reg_address, p.len).await {
+            let retval = ctx.read_holding_registers(p.reg_address, p.len);
+            let read_res;
+            match timeout(Duration::from_secs_f32(2.5), retval).await {
+                Ok(res) => {
+                    read_res = res;
+                }
+                Err(e) => {
+                    error!("{}: read timeout: {}", self.name, e);
+                    break;
+                }
+            }
+            match read_res {
                 Ok(data) => {
                     let mut val;
                     match &p.value {
