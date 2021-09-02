@@ -9,6 +9,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::time::timeout;
 use tokio_modbus::client::Context;
 use tokio_modbus::prelude::*;
 
@@ -1053,7 +1054,18 @@ impl Sun2000 {
             }
 
             info!("{}: connecting to {}...", self.name, self.host_port);
-            match tcp::connect_slave(socket_addr, slave).await {
+            let retval = tcp::connect_slave(socket_addr, slave);
+            let conn;
+            match timeout(Duration::from_secs(5), retval).await {
+                Ok(res) => { conn = res; }
+                Err(e) => {
+                    error!("{}: connect timeout: {}", self.name, e);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+            }
+
+            match conn {
                 Ok(mut ctx) => {
                     info!("{}: connected successfully", self.name);
                     //initial parameters table
