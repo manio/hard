@@ -502,14 +502,19 @@ impl Skymax {
             }
 
             //obtain device path from sysfs
+            let mut disconnected = false;
             let device_path = match self.get_device_path() {
                 Ok(path) => path,
                 Err(e) => {
                     error!("{}: unable to obtain device path: {:?}", self.name, e);
-                    thread::sleep(Duration::from_secs(10));
-                    continue;
+                    disconnected = true;
+                    "".into()
                 }
             };
+            if disconnected {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
+            }
 
             info!(
                 "{}: opening device: {:?}, obtained from physical path: {:?}",
@@ -764,12 +769,12 @@ impl Skymax {
                                     }
                                 }
 
-                                thread::sleep(Duration::from_millis(30));
+                                tokio::time::sleep(Duration::from_millis(30)).await;
                             }
                         }
                         Err(e) => {
                             error!("{}: error opening device: {:?}", self.name, e);
-                            thread::sleep(Duration::from_secs(10));
+                            tokio::time::sleep(Duration::from_secs(10)).await;
                             continue;
                         }
                     }
@@ -778,7 +783,7 @@ impl Skymax {
                     error!("{}: file open timeout: {}", self.name, e);
                 }
             }
-            thread::sleep(Duration::from_millis(30));
+            tokio::time::sleep(Duration::from_millis(30)).await;
         }
 
         info!("{}: task stopped", self.name);

@@ -581,7 +581,7 @@ impl Remeha {
                 Ok(path) => path,
                 Err(e) => {
                     error!("{}: unable to obtain device path: {:?}", self.name, e);
-                    thread::sleep(Duration::from_secs(10));
+                    tokio::time::sleep(Duration::from_secs(10)).await;
                     continue;
                 }
             };
@@ -605,7 +605,7 @@ impl Remeha {
                             //to enable raw mode
                             if let Err(e) = Remeha::setup_fd(f.as_raw_fd()) {
                                 error!("{}: error calling cfmakeraw() on fd: {:?}", self.name, e);
-                                thread::sleep(Duration::from_secs(10));
+                                tokio::time::sleep(Duration::from_secs(10)).await;
                                 continue;
                             }
 
@@ -613,7 +613,7 @@ impl Remeha {
                             match AsyncFile::new(f) {
                                 Err(e) => {
                                     error!("{}: error creating AsyncFd: {:?}", self.name, e);
-                                    thread::sleep(Duration::from_secs(10));
+                                    tokio::time::sleep(Duration::from_secs(10)).await;
                                     continue;
                                 }
                                 Ok(mut file) => {
@@ -751,14 +751,14 @@ impl Remeha {
                                             }
                                         }
 
-                                        thread::sleep(Duration::from_millis(30));
+                                        tokio::time::sleep(Duration::from_millis(30)).await;
                                     }
                                 }
                             }
                         }
                         Err(e) => {
                             error!("{}: error opening device: {:?}", self.name, e);
-                            thread::sleep(Duration::from_secs(10));
+                            tokio::time::sleep(Duration::from_secs(10)).await;
                             continue;
                         }
                     }
@@ -767,7 +767,7 @@ impl Remeha {
                     error!("{}: file open timeout: {}", self.name, e);
                 }
             }
-            thread::sleep(Duration::from_millis(30));
+            tokio::time::sleep(Duration::from_millis(30)).await;
         }
 
         info!("{}: task stopped", self.name);

@@ -17,7 +17,6 @@ use influxdb::InfluxDbWriteable;
 use influxdb::{Client, Timestamp};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
-use std::thread;
 use std::time::{Duration, Instant};
 use tokio_compat_02::FutureExt;
 
@@ -437,7 +436,7 @@ impl Database {
                 let _ = self.influx_flush_cesspool_level().compat().await;
             }
 
-            thread::sleep(Duration::from_millis(50));
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
         info!("{}: task stopped", self.name);
         Ok(())

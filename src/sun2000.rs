@@ -7,7 +7,6 @@ use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_modbus::client::Context;
@@ -1059,7 +1058,7 @@ impl Sun2000 {
                     info!("{}: connected successfully", self.name);
                     //initial parameters table
                     let mut parameters = Sun2000::param_table();
-                    thread::sleep(Duration::from_secs(2));
+                    tokio::time::sleep(Duration::from_secs(2)).await;
 
                     //obtaining all parameters from inverter
                     let (new_ctx, params) = self.read_params(ctx, &parameters, true).await?;
@@ -1280,7 +1279,7 @@ impl Sun2000 {
                     error!("{}", e);
                 }
             }
-            thread::sleep(Duration::from_millis(30));
+            tokio::time::sleep(Duration::from_millis(30)).await;
         }
 
         info!("{}: task stopped", self.name);

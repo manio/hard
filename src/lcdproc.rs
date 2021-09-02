@@ -6,7 +6,6 @@ use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 pub const READ_INTERVAL_SECS: f32 = 1.0; //secs between reading data from TCP connection when idle
@@ -146,7 +145,7 @@ impl Lcdproc {
                 break;
             }
 
-            thread::sleep(Duration::from_secs(2));
+            tokio::time::sleep(Duration::from_secs(2)).await;
             info!("{}: connecting to {}...", self.name, self.lcdproc_host_port);
             match TcpStream::connect(&self.lcdproc_host_port) {
                 Err(e) => {
@@ -302,11 +301,11 @@ impl Lcdproc {
                                 }
                             };
                         }
-                        thread::sleep(Duration::from_millis(30));
+                        tokio::time::sleep(Duration::from_millis(30)).await;
                     }
                 }
             }
-            thread::sleep(Duration::from_millis(30));
+            tokio::time::sleep(Duration::from_millis(30)).await;
         }
 
         info!("{}: task stopped", self.name);

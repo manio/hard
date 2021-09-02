@@ -1,12 +1,11 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 use tokio_compat_02::FutureExt;
 
 use crate::database::{CommandCode, DbTask};
 use crate::onewire::{OneWireTask, TaskCommand};
-use rocket::*;
+use rocket::{get, routes, State};
 use std::sync::mpsc::Sender;
 
 // Just a generic Result type to ease error handling for us. Errors in multithreaded
@@ -81,6 +80,7 @@ impl WebServer {
                 debug!("Got terminate signal from main");
                 break;
             }
+
             let result = rocket::ignite()
                 .mount("/cmd", routes![hello, reload, fan_on, fan_off])
                 .manage(transmitters.clone())
@@ -89,7 +89,7 @@ impl WebServer {
                 .await;
             result.expect("server failed unexpectedly");
 
-            thread::sleep(Duration::from_millis(50));
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
         info!("{}: task stopped", self.name);
