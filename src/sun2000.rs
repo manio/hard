@@ -916,7 +916,7 @@ impl Sun2000 {
     async fn save_to_influxdb(
         influxdb_url: &String,
         thread_name: &String,
-        params: Vec<Parameter>,
+        param: Parameter,
     ) -> Result<()> {
         // connect to influxdb
         let client = Client::new(influxdb_url, "sun2000");
@@ -927,11 +927,8 @@ impl Sun2000 {
             .expect("Time went backwards")
             .as_millis();
 
-        let mut query = Timestamp::Milliseconds(since_the_epoch).into_query("params");
-        //add all values
-        for p in params.into_iter().filter(|s| s.save_to_influx) {
-            query = query.add_field(&p.name, p.get_influx_value());
-        }
+        let mut query = Timestamp::Milliseconds(since_the_epoch).into_query(&param.name);
+        query = query.add_field("value", param.get_influx_value());
 
         match client.query(&query).await {
             Ok(msg) => {
@@ -1009,8 +1006,28 @@ impl Sun2000 {
                             val = ParamKind::NumberI32(Some(new_val));
                         }
                     }
-                    #[rustfmt::skip]
-                    params.push(Parameter::new_from_string(p.name.clone(), val, p.desc.clone(), p.unit.clone(), p.gain , p.reg_address, p.len, p.initial_read, p.save_to_influx));
+                    let param = Parameter::new_from_string(
+                        p.name.clone(),
+                        val,
+                        p.desc.clone(),
+                        p.unit.clone(),
+                        p.gain,
+                        p.reg_address,
+                        p.len,
+                        p.initial_read,
+                        p.save_to_influx,
+                    );
+                    params.push(param.clone());
+
+                    //write data to influxdb if configured
+                    match &self.influxdb_url {
+                        Some(url) => {
+                            if !initial_read && p.save_to_influx {
+                                let _ = Sun2000::save_to_influxdb(url, &self.name, param).await;
+                            }
+                        }
+                        None => (),
+                    }
                 }
                 Err(e) => {
                     error!("{}: error reading register: {}", self.name, e);
@@ -1286,14 +1303,6 @@ impl Sun2000 {
                                     p.get_text_value(),
                                     p.unit.clone().unwrap_or_default()
                                 );
-                            }
-                            //write data to influxdb if configured
-                            match &self.influxdb_url {
-                                Some(url) => {
-                                    let _ =
-                                        Sun2000::save_to_influxdb(url, &self.name, params).await;
-                                }
-                                None => (),
                             }
                         }
                     }
