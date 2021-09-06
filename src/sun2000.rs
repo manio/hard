@@ -942,6 +942,37 @@ impl Sun2000 {
         Ok(())
     }
 
+    async fn save_ms_to_influxdb(
+        influxdb_url: &String,
+        thread_name: &String,
+        ms: u64,
+        param_count: usize,
+    ) -> Result<()> {
+        // connect to influxdb
+        let client = Client::new(influxdb_url, "sun2000");
+
+        let start = SystemTime::now();
+        let since_the_epoch = start
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+
+        let mut query = Timestamp::Milliseconds(since_the_epoch).into_query("inverter_query_time");
+        query = query.add_field("value", ms);
+        query = query.add_field("param_count", param_count as u8);
+
+        match client.query(&query).await {
+            Ok(msg) => {
+                debug!("{}: influxdb write success: {:?}", thread_name, msg);
+            }
+            Err(e) => {
+                error!("{}: influxdb write error: {:?}", thread_name, e);
+            }
+        }
+
+        Ok(())
+    }
+
     async fn read_params(
         &mut self,
         mut ctx: Context,
@@ -1037,12 +1068,21 @@ impl Sun2000 {
         }
 
         let elapsed = now.elapsed();
+        let ms = (elapsed.as_secs() * 1_000) + (elapsed.subsec_nanos() / 1_000_000) as u64;
         debug!(
             "{}: read {} parameters [⏱ {} ms]",
             self.name,
             params.len(),
-            (elapsed.as_secs() * 1_000) + (elapsed.subsec_nanos() / 1_000_000) as u64,
+            ms
         );
+
+        //save query time
+        match &self.influxdb_url {
+            Some(url) => {
+                let _ = Sun2000::save_ms_to_influxdb(url, &self.name, ms, params.len()).await;
+            }
+            None => (),
+        }
         Ok((ctx, params))
     }
 
