@@ -981,10 +981,15 @@ impl Sun2000 {
     ) -> io::Result<(Context, Vec<Parameter>)> {
         let mut params: Vec<Parameter> = vec![];
         let now = Instant::now();
-        for p in parameters
-            .into_iter()
-            .filter(|s| s.initial_read == initial_read)
-        {
+        for p in parameters.into_iter().filter(|s| {
+            (initial_read && s.initial_read)
+                || (!initial_read
+                    && (s.save_to_influx
+                        || s.name.starts_with("state_")
+                        || s.name.starts_with("alarm_")
+                        || s.name.ends_with("_status")
+                        || s.name.ends_with("_code")))
+        }) {
             debug!("-> obtaining {} ({:?})...", p.name, p.desc);
             let retval = ctx.read_holding_registers(p.reg_address, p.len);
             let read_res;
@@ -1300,8 +1305,12 @@ impl Sun2000 {
                                 }
                             }
 
-                            if parameters.iter().filter(|s| !s.initial_read).count() != params.len()
-                            {
+                            if parameters.iter().filter(|s| s.save_to_influx ||
+                                                            s.name.starts_with("state_") ||
+                                                            s.name.starts_with("alarm_") ||
+                                                            s.name.ends_with("_status") ||
+                                                            s.name.ends_with("_code")
+                            ).count() != params.len() {
                                 error!("Not all entries read, reconnecting...");
                                 self.poll_errors = self.poll_errors + 1;
                                 break;
