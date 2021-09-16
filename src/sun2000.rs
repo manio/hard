@@ -1354,13 +1354,14 @@ impl Sun2000 {
                                 );
                             }
                         }
+
+                        tokio::time::sleep(Duration::from_millis(30)).await;
                     }
                 }
                 Err(e) => {
                     error!("{}", e);
                 }
             }
-            tokio::time::sleep(Duration::from_millis(30)).await;
         }
 
         info!("{}: task stopped", self.name);
