@@ -914,13 +914,10 @@ impl Sun2000 {
     }
 
     async fn save_to_influxdb(
-        influxdb_url: &String,
+        client: influxdb::Client,
         thread_name: &String,
         param: Parameter,
     ) -> Result<()> {
-        // connect to influxdb
-        let client = Client::new(influxdb_url, "sun2000");
-
         let start = SystemTime::now();
         let since_the_epoch = start
             .duration_since(UNIX_EPOCH)
@@ -943,14 +940,11 @@ impl Sun2000 {
     }
 
     async fn save_ms_to_influxdb(
-        influxdb_url: &String,
+        client: influxdb::Client,
         thread_name: &String,
         ms: u64,
         param_count: usize,
     ) -> Result<()> {
-        // connect to influxdb
-        let client = Client::new(influxdb_url, "sun2000");
-
         let start = SystemTime::now();
         let since_the_epoch = start
             .duration_since(UNIX_EPOCH)
@@ -979,6 +973,12 @@ impl Sun2000 {
         parameters: &Vec<Parameter>,
         initial_read: bool,
     ) -> io::Result<(Context, Vec<Parameter>)> {
+        // connect to influxdb
+        let client = match &self.influxdb_url {
+            Some(url) => Some(Client::new(url, "sun2000")),
+            None => None,
+        };
+
         let mut params: Vec<Parameter> = vec![];
         let now = Instant::now();
         for p in parameters.into_iter().filter(|s| {
@@ -1056,13 +1056,10 @@ impl Sun2000 {
                     params.push(param.clone());
 
                     //write data to influxdb if configured
-                    match &self.influxdb_url {
-                        Some(url) => {
-                            if !initial_read && p.save_to_influx {
-                                let _ = Sun2000::save_to_influxdb(url, &self.name, param).await;
-                            }
+                    if let Some(c) = client.clone() {
+                        if !initial_read && p.save_to_influx {
+                            let _ = Sun2000::save_to_influxdb(c, &self.name, param).await;
                         }
-                        None => (),
                     }
                 }
                 Err(e) => {
@@ -1082,11 +1079,8 @@ impl Sun2000 {
         );
 
         //save query time
-        match &self.influxdb_url {
-            Some(url) => {
-                let _ = Sun2000::save_ms_to_influxdb(url, &self.name, ms, params.len()).await;
-            }
-            None => (),
+        if let Some(c) = client {
+            let _ = Sun2000::save_ms_to_influxdb(c, &self.name, ms, params.len()).await;
         }
         Ok((ctx, params))
     }
