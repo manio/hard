@@ -178,6 +178,7 @@ async fn main() {
             influx_sensor_values: Default::default(),
             influx_relay_values: Default::default(),
             influx_cesspool_level: None,
+            daily_yield_energy: None,
         };
         let worker_cancel_flag = cancel_flag.clone();
         let db_future = task::spawn(async move { db.worker(worker_cancel_flag).await });
@@ -289,6 +290,7 @@ async fn main() {
                 poll_errors: 0,
                 influxdb_url: influxdb_url.clone(),
                 lcd_transmitter: lcd_tx.clone(),
+                db_transmitter: tx.clone(),
                 mode_change_script: get_config_string("mode_change_script", Some("sun2000")),
                 optimizers: get_config_bool("optimizers", Some("sun2000")),
                 battery_installed: get_config_bool("battery_installed", Some("sun2000")),

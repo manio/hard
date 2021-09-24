@@ -44,6 +44,7 @@ pub struct Database {
     pub influx_sensor_values: HashMap<i32, bool>,
     pub influx_relay_values: HashMap<i32, bool>,
     pub influx_cesspool_level: Option<u8>,
+    pub daily_yield_energy: Option<i32>,
 }
 
 #[derive(Debug)]
@@ -57,6 +58,7 @@ pub enum CommandCode {
     UpdateRelayStateOn,
     UpdateRelayStateOff,
     UpdateCesspoolLevel,
+    UpdateDailyEnergyYield,
 }
 pub struct DbTask {
     pub command: CommandCode,
@@ -354,6 +356,9 @@ impl Database {
                             }
                             _ => {}
                         },
+                        CommandCode::UpdateDailyEnergyYield => {
+                            self.daily_yield_energy = t.value;
+                        }
                     }
                 }
                 _ => (),
@@ -410,6 +415,14 @@ impl Database {
                     //flush all data from hashmaps to database
                     debug!("flushing local data to db...");
                     self.flush_counter_data();
+
+                    //flush daily energy yield from sun2000
+                    if let Some(val) = self.daily_yield_energy {
+                        if self.update_daily_energy_yield(val as f64 / 100.0) {
+                            self.daily_yield_energy = None;
+                        }
+                    }
+
                     flush_data = Instant::now();
                 }
             }
@@ -450,6 +463,26 @@ impl Database {
                     table_name, table_name
                 );
                 let result = client.execute(query.as_str(), &[&(counter as i64), &id_sensor]);
+                match result {
+                    Ok(_) => {
+                        return true;
+                    }
+                    Err(e) => {
+                        error!("{}: SQL error, query={:?}, error: {}", self.name, query, e);
+                        self.conn = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+        false
+    }
+
+    fn update_daily_energy_yield(&mut self, value: f64) -> bool {
+        match self.conn.borrow_mut() {
+            Some(client) => {
+                let query = "select * from daily_energy_yield_upsert($1)";
+                let result = client.execute(query, &[&(value)]);
                 match result {
                     Ok(_) => {
                         return true;

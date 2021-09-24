@@ -1,3 +1,4 @@
+use crate::database::{CommandCode, DbTask};
 use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use chrono::{Local, LocalResult, NaiveDateTime, TimeZone};
 use influxdb::{Client, InfluxDbWriteable, Timestamp, Type};
@@ -832,6 +833,7 @@ pub struct Sun2000 {
     pub poll_errors: u64,
     pub influxdb_url: Option<String>,
     pub lcd_transmitter: Sender<LcdTask>,
+    pub db_transmitter: Sender<DbTask>,
     pub mode_change_script: Option<String>,
     pub optimizers: bool,
     pub battery_installed: bool,
@@ -1235,6 +1237,13 @@ impl Sun2000 {
                                 self.name, self.poll_ok, self.poll_errors,
                                 daily_yield_energy.unwrap_or_default() as f64 / 100.0,
                             );
+
+                            //push daily yield to postgres
+                            let task = DbTask {
+                                command: CommandCode::UpdateDailyEnergyYield,
+                                value: {if let Some(x) = daily_yield_energy {Some(x as i32)} else {None}},
+                            };
+                            let _ = self.db_transmitter.send(task);
 
                             if terminated {
                                 break;
