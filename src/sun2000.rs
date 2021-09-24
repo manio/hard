@@ -1218,6 +1218,7 @@ impl Sun2000 {
                         parameters.push(Parameter::new("storage_current_day_discharge_capacity", ParamKind::NumberU32(None), None, Some("kWh"), 100, 37017, 2, false, true));
                     }
 
+                    let mut daily_yield_energy: Option<u32> = None;
                     loop {
                         if worker_cancel_flag.load(Ordering::SeqCst) {
                             debug!("{}: Got terminate signal from main", self.name);
@@ -1230,8 +1231,9 @@ impl Sun2000 {
                         {
                             stats_interval = Instant::now();
                             info!(
-                                "{}: 📊 inverter query statistics: ok: {}, errors: {}",
-                                self.name, self.poll_ok, self.poll_errors
+                                "{}: 📊 inverter query statistics: ok: {}, errors: {}, daily energy yield: {:.1} kWh",
+                                self.name, self.poll_ok, self.poll_errors,
+                                daily_yield_energy.unwrap_or_default() as f64 / 100.0,
                             );
 
                             if terminated {
@@ -1253,7 +1255,6 @@ impl Sun2000 {
                             let mut alarm_2: Option<u16> = None;
                             let mut alarm_3: Option<u16> = None;
                             let mut active_power: Option<i32> = None;
-                            let mut daily_yield_energy: Option<u32> = None;
 
                             //obtaining all parameters from inverter
                             let (new_ctx, params) =
