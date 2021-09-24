@@ -161,17 +161,26 @@ impl Lcdproc {
                         self.name, self.lcdproc_host_port
                     );
 
-                    debug!("{}: discarding all pending LcdTasks...", self.name);
-                    let mut tasks_no = 0;
+                    debug!("{}: reading pending LcdTasks...", self.name);
                     loop {
-                        tasks_no += 1;
-                        let elem = self.lcd_receiver.try_iter().next();
-                        if elem.is_none() {
-                            break;
+                        match self.lcd_receiver.try_recv() {
+                            Ok(t) => match t.command {
+                                LcdTaskCommand::SetLineText => {
+                                    let idx = t.int_arg as usize;
+                                    if self.lcd_lines.len() < idx + 1 {
+                                        self.lcd_lines.resize(idx + 1, String::new());
+                                    }
+                                    self.lcd_lines[idx] = t.string_arg.unwrap();
+                                }
+                                LcdTaskCommand::SetCesspoolLevel => {
+                                    self.level = Some(t.int_arg);
+                                }
+                                _ => (),
+                            },
+                            _ => {
+                                break;
+                            }
                         }
-                    }
-                    if tasks_no > 0 {
-                        info!("{}: {} LcdTasks discarded", self.name, tasks_no);
                     }
 
                     if let Err(e) = stream.set_read_timeout(Some(Duration::from_millis(500))) {
