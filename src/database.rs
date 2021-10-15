@@ -32,6 +32,7 @@ pub struct Database {
     pub password: Option<String>,
     pub receiver: Receiver<DbTask>,
     pub conn: Option<postgres::Client>,
+    pub disable_onewire: bool,
     pub sensor_devices: Arc<RwLock<onewire::SensorDevices>>,
     pub relay_devices: Arc<RwLock<onewire::RelayDevices>>,
     pub env_sensor_devices: Arc<RwLock<onewire_env::EnvSensorDevices>>,
@@ -406,7 +407,7 @@ impl Database {
 
             //load devices / do idle SQL tasks
             if self.conn.is_some() {
-                if reload_devices {
+                if reload_devices && !self.disable_onewire {
                     info!("{}: loading devices from database...", self.name);
                     self.load_devices();
                     reload_devices = false;

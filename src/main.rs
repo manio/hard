@@ -166,6 +166,7 @@ async fn main() {
             password: None,
             receiver: rx,
             conn: None,
+            disable_onewire: get_config_bool("disable_onewire", None),
             sensor_devices: onewire_sensor_devices.clone(),
             relay_devices: onewire_relay_devices.clone(),
             env_sensor_devices: onewire_env_sensor_devices.clone(),
