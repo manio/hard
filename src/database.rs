@@ -535,7 +535,7 @@ impl Database {
                 self.influx_sensor_counters.clear();
             }
             Err(e) => {
-                debug!("{}: influxdb write error: {:?}", self.name, e);
+                error!("{}: influxdb write error: {:?}", self.name, e);
             }
         }
 
@@ -566,7 +566,7 @@ impl Database {
                 self.influx_relay_values.clear();
             }
             Err(e) => {
-                debug!("{}: influxdb write error: {:?}", self.name, e);
+                error!("{}: influxdb write error: {:?}", self.name, e);
             }
         }
 
@@ -591,7 +591,7 @@ impl Database {
                 self.influx_cesspool_level = None;
             }
             Err(e) => {
-                debug!("{}: influxdb write error: {:?}", self.name, e);
+                error!("{}: influxdb write error: {:?}", self.name, e);
             }
         }
 
