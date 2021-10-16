@@ -444,8 +444,10 @@ impl Database {
                 debug!("flushing sensor/relay values to influxdb...");
                 let _ = self.influx_flush_values_data().compat().await;
             }
-            //write cesspool level to influxdb
+            //write cesspool level to postgres & influxdb
             if self.influxdb_url.is_some() && self.influx_cesspool_level.is_some() {
+                debug!("flushing cesspool level to postgres...");
+                self.pg_update_cesspool_level(self.influx_cesspool_level.unwrap() as i16);
                 debug!("flushing cesspool level to influxdb...");
                 let _ = self.influx_flush_cesspool_level().compat().await;
             }
@@ -483,6 +485,26 @@ impl Database {
         match self.conn.borrow_mut() {
             Some(client) => {
                 let query = "select * from daily_energy_yield_upsert($1)";
+                let result = client.execute(query, &[&(value)]);
+                match result {
+                    Ok(_) => {
+                        return true;
+                    }
+                    Err(e) => {
+                        error!("{}: SQL error, query={:?}, error: {}", self.name, query, e);
+                        self.conn = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+        false
+    }
+
+    fn pg_update_cesspool_level(&mut self, value: i16) -> bool {
+        match self.conn.borrow_mut() {
+            Some(client) => {
+                let query = "insert into cesspool (val) values ($1)";
                 let result = client.execute(query, &[&(value)]);
                 match result {
                     Ok(_) => {
