@@ -995,7 +995,7 @@ impl Sun2000 {
             debug!("-> obtaining {} ({:?})...", p.name, p.desc);
             let retval = ctx.read_holding_registers(p.reg_address, p.len);
             let read_res;
-            match timeout(Duration::from_secs_f32(2.5), retval).await {
+            match timeout(Duration::from_secs_f32(3.5), retval).await {
                 Ok(res) => {
                     read_res = res;
                 }
