@@ -42,6 +42,7 @@ pub fn fan_on(transmitters: State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>
         command: TaskCommand::TurnOnProlong,
         id_relay: Some(14),
         tag_group: None,
+        id_yeelight: None,
         duration: Some(Duration::from_secs(60 * 5)),
     };
     if let Ok(trans) = transmitters.lock() {
@@ -57,6 +58,7 @@ pub fn fan_off(transmitters: State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask
         command: TaskCommand::TurnOff,
         id_relay: Some(14),
         tag_group: None,
+        id_yeelight: None,
         duration: None,
     };
     if let Ok(trans) = transmitters.lock() {

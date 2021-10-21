@@ -61,6 +61,7 @@ pub struct OneWireTask {
     pub command: TaskCommand,
     pub id_relay: Option<i32>,
     pub tag_group: Option<String>,
+    pub id_yeelight: Option<i32>,
     pub duration: Option<Duration>,
 }
 
@@ -756,6 +757,7 @@ impl StateMachine {
                                                 command: TaskCommand::TurnOnProlong,
                                                 id_relay: Some(*id_relay),
                                                 tag_group: None,
+                                                id_yeelight: None,
                                                 duration: None,
                                             };
                                             pending_tasks.push(new_task);
@@ -775,6 +777,7 @@ impl StateMachine {
                                                 command: TaskCommand::TurnOnProlongNight,
                                                 id_relay: None,
                                                 tag_group: Some("entry_light".to_owned()),
+                                                id_yeelight: None,
                                                 duration: Some(Duration::from_secs_f32(
                                                     ENTRY_LIGHT_PROLONG_SECS,
                                                 )),
@@ -987,6 +990,7 @@ impl StateMachine {
                                                         command: TaskCommand::TurnOnProlongNight,
                                                         id_relay: None,
                                                         tag_group: Some("entry_light".to_owned()),
+                                                        id_yeelight: None,
                                                         duration: Some(Duration::from_secs_f32(
                                                             ENTRY_LIGHT_PROLONG_SECS,
                                                         )),
@@ -1016,6 +1020,7 @@ impl StateMachine {
                                 command: TaskCommand::TurnOnProlong,
                                 id_relay: Some(*id_relay),
                                 tag_group: None,
+                                id_yeelight: None,
                                 duration: None,
                             };
                             pending_tasks.push(new_task);
@@ -1713,6 +1718,110 @@ impl OneWire {
 
                 //checking for pending tasks
                 if !pending_tasks.is_empty() {
+                    //Yeelights
+                    for yeelight in &mut relay_dev.yeelight {
+                        let relay_tasks: Vec<OneWireTask> = pending_tasks
+                            .clone()
+                            .into_iter()
+                            .filter(|t| match t.id_yeelight {
+                                Some(id) => yeelight.id_yeelight == id,
+                                None => match &t.tag_group {
+                                    Some(tag_name) => yeelight.tags.contains(tag_name),
+                                    None => false,
+                                },
+                            })
+                            .collect();
+                        for t in &relay_tasks {
+                            debug!("Processing OneWireTask: command={:?}, matched id_yeelight={}, duration={:?}", t.command, yeelight.id_yeelight, t.duration);
+
+                            //flip-flop protection for too fast state changes
+                            let mut flipflop_block = false;
+                            match yeelight.last_toggled {
+                                Some(toggled) => {
+                                    if toggled.elapsed()
+                                        < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
+                                    {
+                                        flipflop_block = true;
+                                    }
+                                }
+                                _ => {}
+                            }
+
+                            match t.command {
+                                TaskCommand::TurnOnProlong => {
+                                    //turn on or prolong
+
+                                    let d = match t.duration {
+                                        Some(d) => {
+                                            //if we have a duration passed, use it
+                                            d
+                                        }
+                                        None => {
+                                            //otherwise take a switch_hold_secs or pir_hold_secs
+                                            if yeelight.switch_hold_secs != DEFAULT_SWITCH_HOLD_SECS
+                                            {
+                                                Duration::from_secs_f32(yeelight.switch_hold_secs)
+                                            } else {
+                                                Duration::from_secs_f32(yeelight.pir_hold_secs)
+                                            }
+                                        }
+                                    };
+
+                                    //checking if yeelight is off
+                                    if !yeelight.override_mode && !yeelight.powered_on {
+                                        if flipflop_block {
+                                            warn!("Yeelight: {}: ✋ external flip-flop protection: PIR turn-on request ignored", yeelight.name);
+                                        } else {
+                                            info!("Yeelight: 💡 external turning ON: {}: duration={:?}", yeelight.name, format_duration(d).to_string());
+                                            yeelight.stop_after = Some(d);
+                                            yeelight.turn_on_off(true);
+                                            self.increment_yeelight_counter(yeelight.id_yeelight);
+                                        }
+                                    } else {
+                                        info!("Yeelight: external prolonging: {}", yeelight.name);
+
+                                        let toggled_elapsed = yeelight
+                                            .last_toggled
+                                            .unwrap_or(Instant::now())
+                                            .elapsed();
+                                        if yeelight.override_mode {
+                                            if yeelight.switch_hold_secs > DEFAULT_PIR_PROLONG_SECS
+                                                && toggled_elapsed
+                                                    > Duration::from_secs_f32(
+                                                        yeelight.switch_hold_secs
+                                                            - DEFAULT_PIR_PROLONG_SECS,
+                                                    )
+                                            {
+                                                yeelight.stop_after = Some(toggled_elapsed.add(
+                                                    Duration::from_secs_f32(
+                                                        DEFAULT_PIR_PROLONG_SECS,
+                                                    ),
+                                                ));
+                                            }
+                                        } else {
+                                            yeelight.stop_after = Some(toggled_elapsed.add(d));
+                                        }
+                                    }
+                                }
+                                TaskCommand::TurnOff => {
+                                    if yeelight.powered_on {
+                                        if flipflop_block {
+                                            warn!("Yeelight: {}: ✋ external flip-flop protection: turn-off toggle request ignored", yeelight.name);
+                                        } else {
+                                            info!("Yeelight: external turn-off: {}", yeelight.name);
+                                            yeelight.stop_after = None;
+                                            yeelight.override_mode = false;
+                                            yeelight.turn_on_off(!yeelight.powered_on);
+                                            self.increment_yeelight_counter(yeelight.id_yeelight);
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    //Relays
                     for rb in &mut relay_dev.relay_boards {
                         //we will be eventually computing new output byte for a relay board
                         //so first of all get the base/previous value

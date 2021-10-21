@@ -336,6 +336,7 @@ impl OneWireEnv {
                                                                         command: TaskCommand::TurnOnProlong,
                                                                         id_relay: Some(*id_relay),
                                                                         tag_group: None,
+                                                                        id_yeelight: None,
                                                                         duration: None, //take default
                                                                     };
                                                                     let _ = self
