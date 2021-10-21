@@ -1315,7 +1315,7 @@ impl Sun2000 {
                                                             s.name.ends_with("_status") ||
                                                             s.name.ends_with("_code")
                             ).count() != params.len() {
-                                error!("Not all entries read, reconnecting...");
+                                error!("{}: Not all entries read, reconnecting...", self.name);
                                 self.poll_errors = self.poll_errors + 1;
                                 break;
                             } else {
