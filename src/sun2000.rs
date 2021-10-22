@@ -1065,7 +1065,10 @@ impl Sun2000 {
                     }
                 }
                 Err(e) => {
-                    error!("{}: error reading register: {}", self.name, e);
+                    error!(
+                        "{}: read error, register: {}, error: {}",
+                        self.name, p.name, e
+                    );
                     break;
                 }
             }
