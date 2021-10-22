@@ -992,84 +992,94 @@ impl Sun2000 {
                         || s.name.ends_with("_status")
                         || s.name.ends_with("_code")))
         }) {
-            debug!("-> obtaining {} ({:?})...", p.name, p.desc);
-            let retval = ctx.read_holding_registers(p.reg_address, p.len);
-            let read_res;
-            match timeout(Duration::from_secs_f32(3.5), retval).await {
-                Ok(res) => {
-                    read_res = res;
+            let mut attempts = 0;
+            while attempts < 3 {
+                attempts = attempts + 1;
+                debug!("-> obtaining {} ({:?})...", p.name, p.desc);
+                let retval = ctx.read_holding_registers(p.reg_address, p.len);
+                let read_res;
+                match timeout(Duration::from_secs_f32(3.5), retval).await {
+                    Ok(res) => {
+                        read_res = res;
+                    }
+                    Err(e) => {
+                        error!(
+                            "{}: read timeout (attempt #{}), register: {}, error: {}",
+                            self.name, attempts, p.name, e
+                        );
+                        continue;
+                    }
                 }
-                Err(e) => {
-                    error!("{}: read timeout: {}", self.name, e);
-                    break;
-                }
-            }
-            match read_res {
-                Ok(data) => {
-                    let mut val;
-                    match &p.value {
-                        ParamKind::Text(_) => {
-                            let bytes: Vec<u8> = data.iter().fold(vec![], |mut x, elem| {
-                                if (elem >> 8) as u8 != 0 {
-                                    x.push((elem >> 8) as u8);
+                match read_res {
+                    Ok(data) => {
+                        let mut val;
+                        match &p.value {
+                            ParamKind::Text(_) => {
+                                let bytes: Vec<u8> = data.iter().fold(vec![], |mut x, elem| {
+                                    if (elem >> 8) as u8 != 0 {
+                                        x.push((elem >> 8) as u8);
+                                    }
+                                    if (elem & 0xff) as u8 != 0 {
+                                        x.push((elem & 0xff) as u8);
+                                    }
+                                    x
+                                });
+                                let id = String::from_utf8(bytes).unwrap();
+                                val = ParamKind::Text(Some(id));
+                            }
+                            ParamKind::NumberU16(_) => {
+                                debug!("-> {} = {:?}", p.name, data);
+                                val = ParamKind::NumberU16(Some(data[0] as u16));
+                            }
+                            ParamKind::NumberI16(_) => {
+                                debug!("-> {} = {:?}", p.name, data);
+                                val = ParamKind::NumberI16(Some(data[0] as i16));
+                            }
+                            ParamKind::NumberU32(_) => {
+                                let new_val: u32 = ((data[0] as u32) << 16) | data[1] as u32;
+                                debug!("-> {} = {:X?} {:X}", p.name, data, new_val);
+                                val = ParamKind::NumberU32(Some(new_val));
+                                if p.unit.unwrap_or_default() == "epoch" && new_val == 0 {
+                                    //zero epoch makes no sense, let's set it to None
+                                    val = ParamKind::NumberU32(None);
                                 }
-                                if (elem & 0xff) as u8 != 0 {
-                                    x.push((elem & 0xff) as u8);
-                                }
-                                x
-                            });
-                            let id = String::from_utf8(bytes).unwrap();
-                            val = ParamKind::Text(Some(id));
-                        }
-                        ParamKind::NumberU16(_) => {
-                            debug!("-> {} = {:?}", p.name, data);
-                            val = ParamKind::NumberU16(Some(data[0] as u16));
-                        }
-                        ParamKind::NumberI16(_) => {
-                            debug!("-> {} = {:?}", p.name, data);
-                            val = ParamKind::NumberI16(Some(data[0] as i16));
-                        }
-                        ParamKind::NumberU32(_) => {
-                            let new_val: u32 = ((data[0] as u32) << 16) | data[1] as u32;
-                            debug!("-> {} = {:X?} {:X}", p.name, data, new_val);
-                            val = ParamKind::NumberU32(Some(new_val));
-                            if p.unit.unwrap_or_default() == "epoch" && new_val == 0 {
-                                //zero epoch makes no sense, let's set it to None
-                                val = ParamKind::NumberU32(None);
+                            }
+                            ParamKind::NumberI32(_) => {
+                                let new_val: i32 =
+                                    ((data[0] as i32) << 16) | (data[1] as u32) as i32;
+                                debug!("-> {} = {:X?} {:X}", p.name, data, new_val);
+                                val = ParamKind::NumberI32(Some(new_val));
                             }
                         }
-                        ParamKind::NumberI32(_) => {
-                            let new_val: i32 = ((data[0] as i32) << 16) | (data[1] as u32) as i32;
-                            debug!("-> {} = {:X?} {:X}", p.name, data, new_val);
-                            val = ParamKind::NumberI32(Some(new_val));
-                        }
-                    }
-                    let param = Parameter::new_from_string(
-                        p.name.clone(),
-                        val,
-                        p.desc.clone(),
-                        p.unit.clone(),
-                        p.gain,
-                        p.reg_address,
-                        p.len,
-                        p.initial_read,
-                        p.save_to_influx,
-                    );
-                    params.push(param.clone());
+                        let param = Parameter::new_from_string(
+                            p.name.clone(),
+                            val,
+                            p.desc.clone(),
+                            p.unit.clone(),
+                            p.gain,
+                            p.reg_address,
+                            p.len,
+                            p.initial_read,
+                            p.save_to_influx,
+                        );
+                        params.push(param.clone());
 
-                    //write data to influxdb if configured
-                    if let Some(c) = client.clone() {
-                        if !initial_read && p.save_to_influx {
-                            let _ = Sun2000::save_to_influxdb(c, &self.name, param).await;
+                        //write data to influxdb if configured
+                        if let Some(c) = client.clone() {
+                            if !initial_read && p.save_to_influx {
+                                let _ = Sun2000::save_to_influxdb(c, &self.name, param).await;
+                            }
                         }
+
+                        break; //read next parameter
                     }
-                }
-                Err(e) => {
-                    error!(
-                        "{}: read error, register: {}, error: {}",
-                        self.name, p.name, e
-                    );
-                    break;
+                    Err(e) => {
+                        error!(
+                            "{}: read error (attempt #{}), register: {}, error: {}",
+                            self.name, attempts, p.name, e
+                        );
+                        continue;
+                    }
                 }
             }
         }
