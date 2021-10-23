@@ -1484,21 +1484,23 @@ impl OneWire {
                                                                                         self.increment_yeelight_counter(yeelight.id_yeelight);
                                                                                     }
                                                                                 } else {
-                                                                                    info!(
-                                                                                        "Yeelight: Prolonging: {}",
-                                                                                        yeelight.name,
-                                                                                    );
-
                                                                                     let toggled_elapsed = yeelight.last_toggled.unwrap_or(Instant::now()).elapsed();
-                                                                                    if yeelight
-                                                                                        .override_mode
-                                                                                    {
-                                                                                        if yeelight.switch_hold_secs > DEFAULT_PIR_PROLONG_SECS && toggled_elapsed > Duration::from_secs_f32(yeelight.switch_hold_secs - DEFAULT_PIR_PROLONG_SECS) {
-                                                                                            yeelight.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(DEFAULT_PIR_PROLONG_SECS)));
+                                                                                    let mut prolong_secs = yeelight.pir_hold_secs;
+                                                                                    if yeelight.override_mode {
+                                                                                         if DEFAULT_PIR_PROLONG_SECS > yeelight.pir_hold_secs {
+                                                                                             prolong_secs = DEFAULT_PIR_PROLONG_SECS
+                                                                                         };
+                                                                                         if yeelight.switch_hold_secs > prolong_secs && toggled_elapsed > Duration::from_secs_f32(yeelight.switch_hold_secs - prolong_secs) {
+                                                                                            yeelight.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(prolong_secs)));
                                                                                         }
                                                                                     } else {
-                                                                                        yeelight.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(yeelight.pir_hold_secs)));
+                                                                                        yeelight.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(prolong_secs)));
                                                                                     }
+                                                                                    info!(
+                                                                                        "Yeelight: prolonging: {}, duration added: {}",
+                                                                                        yeelight.name,
+                                                                                        format_duration(Duration::from_secs_f32(prolong_secs)),
+                                                                                    );
                                                                                 }
                                                                             }
                                                                         }
@@ -1751,7 +1753,7 @@ impl OneWire {
                                 TaskCommand::TurnOnProlong => {
                                     //turn on or prolong
 
-                                    let d = match t.duration {
+                                    let mut d = match t.duration {
                                         Some(d) => {
                                             //if we have a duration passed, use it
                                             d
@@ -1778,29 +1780,32 @@ impl OneWire {
                                             self.increment_yeelight_counter(yeelight.id_yeelight);
                                         }
                                     } else {
-                                        info!("Yeelight: external prolonging: {}", yeelight.name);
-
                                         let toggled_elapsed = yeelight
                                             .last_toggled
                                             .unwrap_or(Instant::now())
                                             .elapsed();
                                         if yeelight.override_mode {
-                                            if yeelight.switch_hold_secs > DEFAULT_PIR_PROLONG_SECS
+                                            let mut prolong_secs = yeelight.pir_hold_secs;
+                                            if DEFAULT_PIR_PROLONG_SECS > yeelight.pir_hold_secs {
+                                                prolong_secs = DEFAULT_PIR_PROLONG_SECS
+                                            };
+                                            if yeelight.switch_hold_secs > prolong_secs
                                                 && toggled_elapsed
                                                     > Duration::from_secs_f32(
-                                                        yeelight.switch_hold_secs
-                                                            - DEFAULT_PIR_PROLONG_SECS,
+                                                        yeelight.switch_hold_secs - prolong_secs,
                                                     )
                                             {
-                                                yeelight.stop_after = Some(toggled_elapsed.add(
-                                                    Duration::from_secs_f32(
-                                                        DEFAULT_PIR_PROLONG_SECS,
-                                                    ),
-                                                ));
+                                                d = Duration::from_secs_f32(prolong_secs);
+                                                yeelight.stop_after = Some(toggled_elapsed.add(d));
                                             }
                                         } else {
                                             yeelight.stop_after = Some(toggled_elapsed.add(d));
                                         }
+                                        info!(
+                                            "Yeelight: external prolonging: {}, duration added: {}",
+                                            yeelight.name,
+                                            format_duration(d)
+                                        );
                                     }
                                 }
                                 TaskCommand::TurnOff => {
@@ -1868,7 +1873,7 @@ impl OneWire {
                                             TaskCommand::TurnOnProlong => {
                                                 //turn on or prolong
 
-                                                let d = match t.duration {
+                                                let mut d = match t.duration {
                                                     Some(d) => {
                                                         //if we have a duration passed, use it
                                                         d
@@ -1920,40 +1925,44 @@ impl OneWire {
                                                         rb.new_value = Some(new_state);
                                                     }
                                                 } else {
+                                                    let toggled_elapsed = relay
+                                                        .last_toggled
+                                                        .unwrap_or(Instant::now())
+                                                        .elapsed();
+                                                    let mut prolong_secs = relay.pir_hold_secs;
+                                                    if relay.override_mode {
+                                                        if DEFAULT_PIR_PROLONG_SECS
+                                                            > relay.pir_hold_secs
+                                                        {
+                                                            prolong_secs = DEFAULT_PIR_PROLONG_SECS
+                                                        };
+                                                        if relay.switch_hold_secs > prolong_secs
+                                                            && toggled_elapsed
+                                                                > Duration::from_secs_f32(
+                                                                    relay.switch_hold_secs
+                                                                        - prolong_secs,
+                                                                )
+                                                        {
+                                                            d = Duration::from_secs_f32(
+                                                                prolong_secs,
+                                                            );
+                                                            relay.stop_after =
+                                                                Some(toggled_elapsed.add(d));
+                                                        }
+                                                    } else {
+                                                        relay.stop_after =
+                                                            Some(toggled_elapsed.add(d));
+                                                    }
                                                     info!(
-                                                        "{}: external prolonging: {}: bit={}",
+                                                        "{}: external prolonging: {}: bit={}, duration added: {}",
                                                         get_w1_device_name(
                                                             rb.ow_family,
                                                             rb.ow_address
                                                         ),
                                                         relay.name,
                                                         i,
+                                                        format_duration(d),
                                                     );
-
-                                                    let toggled_elapsed = relay
-                                                        .last_toggled
-                                                        .unwrap_or(Instant::now())
-                                                        .elapsed();
-                                                    if relay.override_mode {
-                                                        if relay.switch_hold_secs
-                                                            > DEFAULT_PIR_PROLONG_SECS
-                                                            && toggled_elapsed
-                                                                > Duration::from_secs_f32(
-                                                                    relay.switch_hold_secs
-                                                                        - DEFAULT_PIR_PROLONG_SECS,
-                                                                )
-                                                        {
-                                                            relay.stop_after =
-                                                                Some(toggled_elapsed.add(
-                                                                    Duration::from_secs_f32(
-                                                                        DEFAULT_PIR_PROLONG_SECS,
-                                                                    ),
-                                                                ));
-                                                        }
-                                                    } else {
-                                                        relay.stop_after =
-                                                            Some(toggled_elapsed.add(d));
-                                                    }
                                                 }
                                             }
                                             TaskCommand::TurnOff => {
