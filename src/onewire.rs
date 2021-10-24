@@ -1343,15 +1343,16 @@ impl OneWire {
                                                                                             } else {
                                                                                                 let toggled_elapsed = relay.last_toggled.unwrap_or(Instant::now()).elapsed();
                                                                                                 let mut prolong_secs = relay.pir_hold_secs;
+                                                                                                let d = Duration::from_secs_f32(prolong_secs);
                                                                                                 if relay.override_mode {
                                                                                                     if DEFAULT_PIR_PROLONG_SECS > relay.pir_hold_secs {
                                                                                                         prolong_secs = DEFAULT_PIR_PROLONG_SECS
                                                                                                     };
                                                                                                     if relay.switch_hold_secs > prolong_secs && toggled_elapsed > Duration::from_secs_f32(relay.switch_hold_secs - prolong_secs) {
-                                                                                                        relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(prolong_secs)));
+                                                                                                        relay.stop_after = Some(toggled_elapsed.add(d));
                                                                                                     }
                                                                                                 } else {
-                                                                                                    relay.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(prolong_secs)));
+                                                                                                    relay.stop_after = Some(toggled_elapsed.add(d));
                                                                                                 }
                                                                                                 info!(
                                                                                                     "{}: PIR prolonging: {}: bit={}, duration added: {}",
@@ -1361,7 +1362,7 @@ impl OneWire {
                                                                                                     ),
                                                                                                     relay.name,
                                                                                                     i,
-                                                                                                    format_duration(Duration::from_secs_f32(prolong_secs)),
+                                                                                                    format_duration(d),
                                                                                                 );
                                                                                             }
                                                                                         }
@@ -1486,20 +1487,21 @@ impl OneWire {
                                                                                 } else {
                                                                                     let toggled_elapsed = yeelight.last_toggled.unwrap_or(Instant::now()).elapsed();
                                                                                     let mut prolong_secs = yeelight.pir_hold_secs;
+                                                                                    let d = Duration::from_secs_f32(prolong_secs);
                                                                                     if yeelight.override_mode {
                                                                                          if DEFAULT_PIR_PROLONG_SECS > yeelight.pir_hold_secs {
                                                                                              prolong_secs = DEFAULT_PIR_PROLONG_SECS
                                                                                          };
                                                                                          if yeelight.switch_hold_secs > prolong_secs && toggled_elapsed > Duration::from_secs_f32(yeelight.switch_hold_secs - prolong_secs) {
-                                                                                            yeelight.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(prolong_secs)));
+                                                                                            yeelight.stop_after = Some(toggled_elapsed.add(d));
                                                                                         }
                                                                                     } else {
-                                                                                        yeelight.stop_after = Some(toggled_elapsed.add(Duration::from_secs_f32(prolong_secs)));
+                                                                                        yeelight.stop_after = Some(toggled_elapsed.add(d));
                                                                                     }
                                                                                     info!(
                                                                                         "Yeelight: prolonging: {}, duration added: {}",
                                                                                         yeelight.name,
-                                                                                        format_duration(Duration::from_secs_f32(prolong_secs)),
+                                                                                        format_duration(d),
                                                                                     );
                                                                                 }
                                                                             }
