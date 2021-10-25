@@ -16,6 +16,7 @@ use tokio_modbus::prelude::*;
 
 pub const SUN2000_POLL_INTERVAL_SECS: f32 = 2.0; //secs between polling
 pub const SUN2000_STATS_DUMP_INTERVAL_SECS: f32 = 3600.0; //secs between showing stats
+pub const SUN2000_ATTEMPTS_PER_PARAM: u8 = 3; //max read attempts per single parameter
 
 // Just a generic Result type to ease error handling for us. Errors in multithreaded
 // async contexts needs some extra restrictions
@@ -993,7 +994,7 @@ impl Sun2000 {
                         || s.name.ends_with("_code")))
         }) {
             let mut attempts = 0;
-            while attempts < 3 {
+            while attempts < SUN2000_ATTEMPTS_PER_PARAM {
                 attempts = attempts + 1;
                 debug!("-> obtaining {} ({:?})...", p.name, p.desc);
                 let retval = ctx.read_holding_registers(p.reg_address, p.len);
@@ -1004,8 +1005,8 @@ impl Sun2000 {
                     }
                     Err(e) => {
                         error!(
-                            "{}: read timeout (attempt #{}), register: {}, error: {}",
-                            self.name, attempts, p.name, e
+                            "{}: read timeout (attempt #{} of {}), register: {}, error: {}",
+                            self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
                         );
                         continue;
                     }
@@ -1075,8 +1076,8 @@ impl Sun2000 {
                     }
                     Err(e) => {
                         error!(
-                            "{}: read error (attempt #{}), register: {}, error: {}",
-                            self.name, attempts, p.name, e
+                            "{}: read error (attempt #{} of {}), register: {}, error: {}",
+                            self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
                         );
                         continue;
                     }
