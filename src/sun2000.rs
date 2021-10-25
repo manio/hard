@@ -2,6 +2,7 @@ use crate::database::{CommandCode, DbTask};
 use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use chrono::{Local, LocalResult, NaiveDateTime, TimeZone};
 use influxdb::{Client, InfluxDbWriteable, Timestamp, Type};
+use io::ErrorKind;
 use std::fmt;
 use std::io;
 use std::ops::Add;
@@ -983,6 +984,7 @@ impl Sun2000 {
         };
 
         let mut params: Vec<Parameter> = vec![];
+        let mut disconnected = false;
         let now = Instant::now();
         for p in parameters.into_iter().filter(|s| {
             (initial_read && s.initial_read)
@@ -993,6 +995,9 @@ impl Sun2000 {
                         || s.name.ends_with("_status")
                         || s.name.ends_with("_code")))
         }) {
+            if disconnected {
+                break;
+            }
             let mut attempts = 0;
             while attempts < SUN2000_ATTEMPTS_PER_PARAM {
                 attempts = attempts + 1;
@@ -1079,7 +1084,15 @@ impl Sun2000 {
                             "{}: read error (attempt #{} of {}), register: {}, error: {}",
                             self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
                         );
-                        continue;
+                        match e.kind() {
+                            ErrorKind::BrokenPipe | ErrorKind::ConnectionReset => {
+                                disconnected = true;
+                                break;
+                            }
+                            _ => {
+                                continue;
+                            }
+                        }
                     }
                 }
             }
