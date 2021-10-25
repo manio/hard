@@ -1322,13 +1322,13 @@ impl Sun2000 {
                                 }
                             }
 
-                            if parameters.iter().filter(|s| s.save_to_influx ||
-                                                            s.name.starts_with("state_") ||
-                                                            s.name.starts_with("alarm_") ||
-                                                            s.name.ends_with("_status") ||
-                                                            s.name.ends_with("_code")
-                            ).count() != params.len() {
-                                error!("{}: Not all entries read, reconnecting...", self.name);
+                            let param_count = parameters.iter().filter(|s| s.save_to_influx ||
+                                s.name.starts_with("state_") ||
+                                s.name.starts_with("alarm_") ||
+                                s.name.ends_with("_status") ||
+                                s.name.ends_with("_code")).count();
+                            if params.len() != param_count {
+                                error!("{}: problem obtaining a complete parameter list (read: {}, expected: {}), reconnecting...", self.name, params.len(), param_count);
                                 self.poll_errors = self.poll_errors + 1;
                                 break;
                             } else {
