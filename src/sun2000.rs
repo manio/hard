@@ -3,6 +3,7 @@ use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use chrono::{Local, LocalResult, NaiveDateTime, TimeZone};
 use influxdb::{Client, InfluxDbWriteable, Timestamp, Type};
 use io::ErrorKind;
+use simplelog::*;
 use std::fmt;
 use std::io;
 use std::ops::Add;

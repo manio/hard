@@ -4,6 +4,7 @@ use crate::skymax::Skymax;
 use chrono::{DateTime, Utc};
 use crc16::*;
 use influxdb::{Client, InfluxDbWriteable};
+use simplelog::*;
 use std::fmt;
 use std::io;
 use std::os::unix::io::{AsRawFd, RawFd};

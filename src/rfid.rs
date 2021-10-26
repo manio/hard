@@ -1,5 +1,6 @@
 use evdev::Key::*;
 use evdev::KEY;
+use simplelog::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;

@@ -2,6 +2,7 @@ use crate::onewire::{
     get_w1_device_name, OneWireTask, TaskCommand, FAMILY_CODE_DS18B20, FAMILY_CODE_DS18S20,
     FAMILY_CODE_DS2438, W1_ROOT_PATH,
 };
+use simplelog::*;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};

@@ -6,6 +6,7 @@ use tokio_compat_02::FutureExt;
 use crate::database::{CommandCode, DbTask};
 use crate::onewire::{OneWireTask, TaskCommand};
 use rocket::{get, routes, State};
+use simplelog::*;
 use std::sync::mpsc::Sender;
 
 // Just a generic Result type to ease error handling for us. Errors in multithreaded

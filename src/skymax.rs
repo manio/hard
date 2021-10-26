@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use crc16::*;
 use humantime::format_duration;
 use influxdb::{Client, InfluxDbWriteable};
+use simplelog::*;
 use std::fmt;
 use std::fs;
 use std::io;

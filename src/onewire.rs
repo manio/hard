@@ -6,6 +6,7 @@ use humantime::format_duration;
 use ini::Ini;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize, Serializer};
+use simplelog::*;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};

@@ -1,3 +1,4 @@
+use simplelog::*;
 use std::io::Write;
 use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
