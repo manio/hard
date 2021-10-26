@@ -1011,7 +1011,7 @@ impl Sun2000 {
                     }
                     Err(e) => {
                         error!(
-                            "{}: read timeout (attempt #{} of {}), register: {}, error: {}",
+                            "<i>{}</i>: read timeout (attempt #{} of {}), register: <green><i>{}</>, error: <b>{}</>",
                             self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
                         );
                         continue;
@@ -1082,7 +1082,7 @@ impl Sun2000 {
                     }
                     Err(e) => {
                         let msg = format!(
-                            "{}: read error (attempt #{} of {}), register: {}, error: {}",
+                            "<i>{}</i>: read error (attempt #{} of {}), register: <green><i>{}</>, error: <b>{}</>",
                             self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
                         );
                         match e.kind() {
