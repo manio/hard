@@ -1235,7 +1235,7 @@ impl OneWire {
                                                                 sensor.id_sensor,
                                                             );
                                                         info!(
-                                                            "{}: [{} {} {}]: {:#04x} on: {}, stop_processing: {}",
+                                                            "<green>{}</>: [<i>{}</i> {} <b>{}</b>]: {:#04x} on: <bold>{}{}</>, stop_processing: {}",
                                                             kind_code,
                                                             get_w1_device_name(
                                                                 sb.ow_family,
@@ -1244,6 +1244,7 @@ impl OneWire {
                                                             pio_name,
                                                             sensor.name,
                                                             new_value,
+                                                            {if on {"<green>"} else {"<red>"}},
                                                             on,
                                                             stop_processing
                                                         );
