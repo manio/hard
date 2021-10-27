@@ -746,7 +746,7 @@ impl Sun2000State {
         let mut failure = false;
         if device_status.is_some() && self.device_status != device_status {
             info!(
-                "{}: status: {}",
+                "<i>{}</>: status: <b>{}</>",
                 thread_name,
                 Sun2000State::get_device_status_description(device_status.unwrap())
             );
@@ -754,7 +754,7 @@ impl Sun2000State {
         }
         if storage_status.is_some() && self.storage_status != storage_status {
             info!(
-                "{}: storage status: {}",
+                "<i>{}</>: storage status: <b>{}</>",
                 thread_name,
                 Sun2000State::get_storage_status_description(storage_status.unwrap())
             );
@@ -762,7 +762,7 @@ impl Sun2000State {
         }
         if grid_code.is_some() && self.grid_code != grid_code {
             info!(
-                "{}: grid: {}",
+                "<i>{}</>: grid: <b>{}</>",
                 thread_name,
                 Sun2000State::get_grid_code_description(grid_code.unwrap())
             );
@@ -770,7 +770,7 @@ impl Sun2000State {
         }
         if state_1.is_some() && self.state_1 != state_1 {
             info!(
-                "{}: state_1: {}",
+                "<i>{}</>: state_1: <b>{}</>",
                 thread_name,
                 Sun2000State::get_state1_description(state_1.unwrap())
             );
@@ -778,7 +778,7 @@ impl Sun2000State {
         }
         if state_2.is_some() && self.state_2 != state_2 {
             info!(
-                "{}: state_2: {}",
+                "<i>{}</>: state_2: <b>{}</>",
                 thread_name,
                 Sun2000State::get_state2_description(state_2.unwrap())
             );
@@ -786,7 +786,7 @@ impl Sun2000State {
         }
         if state_3.is_some() && self.state_3 != state_3 {
             info!(
-                "{}: state_3: {}",
+                "<i>{}</>: state_3: <b>{}</>",
                 thread_name,
                 Sun2000State::get_state3_description(state_3.unwrap())
             );
@@ -795,7 +795,7 @@ impl Sun2000State {
         if alarm_1.is_some() && self.alarm_1 != alarm_1 {
             if alarm_1.unwrap() != 0 || self.alarm_1.is_some() {
                 info!(
-                    "{}: alarm_1: {}",
+                    "<i>{}</>: alarm_1: <b><red>{}</>",
                     thread_name,
                     Sun2000State::get_alarm1_description(alarm_1.unwrap())
                 );
@@ -806,7 +806,7 @@ impl Sun2000State {
         if alarm_2.is_some() && self.alarm_2 != alarm_2 {
             if alarm_2.unwrap() != 0 || self.alarm_2.is_some() {
                 info!(
-                    "{}: alarm_2: {}",
+                    "<i>{}</>: alarm_2: <b><red>{}</>",
                     thread_name,
                     Sun2000State::get_alarm2_description(alarm_2.unwrap())
                 );
@@ -817,7 +817,7 @@ impl Sun2000State {
         if alarm_3.is_some() && self.alarm_3 != alarm_3 {
             if alarm_3.unwrap() != 0 || self.alarm_3.is_some() {
                 info!(
-                    "{}: alarm_3: {}",
+                    "<i>{}</>: alarm_3: <b><red>{}</>",
                     thread_name,
                     Sun2000State::get_alarm3_description(alarm_3.unwrap())
                 );
@@ -937,7 +937,7 @@ impl Sun2000 {
                 debug!("{}: influxdb write success: {:?}", thread_name, msg);
             }
             Err(e) => {
-                error!("{}: influxdb write error: {:?}", thread_name, e);
+                error!("<i>{}</>: influxdb write error: <b>{:?}</>", thread_name, e);
             }
         }
 
@@ -965,7 +965,7 @@ impl Sun2000 {
                 debug!("{}: influxdb write success: {:?}", thread_name, msg);
             }
             Err(e) => {
-                error!("{}: influxdb write error: {:?}", thread_name, e);
+                error!("<i>{}</>: influxdb write error: <b>{:?}</>", thread_name, e);
             }
         }
 
@@ -1124,7 +1124,7 @@ impl Sun2000 {
 
     #[rustfmt::skip]
     pub async fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
-        info!("{}: Starting task", self.name);
+        info!("<i>{}</>: Starting task", self.name);
         let mut poll_interval = Instant::now();
         let mut stats_interval = Instant::now();
         let mut terminated = false;
@@ -1157,13 +1157,13 @@ impl Sun2000 {
                 slave = Slave(0x00);
             }
 
-            info!("{}: connecting to {}...", self.name, self.host_port);
+            info!("<i>{}</>: connecting to <u>{}</>...", self.name, self.host_port);
             let retval = tcp::connect_slave(socket_addr, slave);
             let conn;
             match timeout(Duration::from_secs(5), retval).await {
                 Ok(res) => { conn = res; }
                 Err(e) => {
-                    error!("{}: connect timeout: {}", self.name, e);
+                    error!("<i>{}</>: connect timeout: <b>{}</>", self.name, e);
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
@@ -1171,7 +1171,7 @@ impl Sun2000 {
 
             match conn {
                 Ok(mut ctx) => {
-                    info!("{}: connected successfully", self.name);
+                    info!("<i>{}</>: connected successfully", self.name);
                     //initial parameters table
                     let mut parameters = Sun2000::param_table();
                     tokio::time::sleep(Duration::from_secs(2)).await;
@@ -1197,20 +1197,20 @@ impl Sun2000 {
                             }
                             ParamKind::Text(_) => match p.name.as_ref() {
                                 "model_name" => {
-                                    info!("{}: model name: {}", self.name, &p.get_text_value());
+                                    info!("<i>{}</>: model name: <b><cyan>{}</>", self.name, &p.get_text_value());
                                 }
                                 "serial_number" => {
-                                    info!("{}: serial number: {}", self.name, &p.get_text_value());
+                                    info!("<i>{}</>: serial number: <b><cyan>{}</>", self.name, &p.get_text_value());
                                 }
                                 "product_number" => {
-                                    info!("{}: product number: {}", self.name, &p.get_text_value());
+                                    info!("<i>{}</>: product number: <b><cyan>{}</>", self.name, &p.get_text_value());
                                 }
                                 _ => {}
                             },
                             ParamKind::NumberU32(_) => match p.name.as_ref() {
                                 "rated_power" => {
                                     info!(
-                                        "{}: rated power: {} {}",
+                                        "<i>{}</>: rated power: <b><cyan>{} {}</>",
                                         self.name,
                                         &p.get_text_value(),
                                         p.unit.clone().unwrap_or_default()
@@ -1224,7 +1224,7 @@ impl Sun2000 {
 
                     match nb_pv_strings {
                         Some(n) => {
-                            info!("{}: number of available strings: {}", self.name, n);
+                            info!("<i>{}</>: number of available strings: <b><cyan>{}</>", self.name, n);
                             for i in 1..=n {
                                 parameters.push(Parameter::new_from_string(format!("pv_{:02}_voltage", i), ParamKind::NumberI16(None), None, Some("V"), 10, 32014 + i*2, 1, false, true));
                                 parameters.push(Parameter::new_from_string(format!("pv_{:02}_current", i), ParamKind::NumberI16(None), None, Some("A"), 100, 32015 + i*2, 1, false, true));
@@ -1234,13 +1234,13 @@ impl Sun2000 {
                     }
 
                     if self.optimizers {
-                        info!("{}: config: optimizers enabled", self.name);
+                        info!("<i>{}</>: config: optimizers enabled", self.name);
                         parameters.push(Parameter::new("nb_optimizers", ParamKind::NumberU16(None), None, None, 1, 37200, 1, false, false));
                         parameters.push(Parameter::new("nb_online_optimizers", ParamKind::NumberU16(None), None, None, 1, 37201, 1, false, true));
                     }
 
                     if self.battery_installed {
-                        info!("{}: config: battery installed", self.name);
+                        info!("<i>{}</>: config: battery installed", self.name);
                         parameters.push(Parameter::new("storage_working_mode", ParamKind::NumberI16(None), None, Some("storage_working_mode_enum"), 1, 47004, 1, false, true));
                         parameters.push(Parameter::new("storage_time_of_use_price", ParamKind::NumberI16(None), None, Some("storage_tou_price_enum"), 1, 47027, 1, false, true));
                         parameters.push(Parameter::new("storage_lcoe", ParamKind::NumberU32(None), None, None, 1000, 47069, 2, false, true));
@@ -1258,7 +1258,7 @@ impl Sun2000 {
                     let mut daily_yield_energy: Option<u32> = None;
                     loop {
                         if worker_cancel_flag.load(Ordering::SeqCst) {
-                            debug!("{}: Got terminate signal from main", self.name);
+                            debug!("<i>{}</>: Got terminate signal from main", self.name);
                             terminated = true;
                         }
 
@@ -1268,7 +1268,7 @@ impl Sun2000 {
                         {
                             stats_interval = Instant::now();
                             info!(
-                                "{}: 📊 inverter query statistics: ok: {}, errors: {}, daily energy yield: {:.1} kWh",
+                                "<i>{}</>: 📊 inverter query statistics: ok: <b>{}</>, errors: <b>{}</>, daily energy yield: <b>{:.1} kWh</>",
                                 self.name, self.poll_ok, self.poll_errors,
                                 daily_yield_energy.unwrap_or_default() as f64 / 100.0,
                             );
@@ -1311,7 +1311,7 @@ impl Sun2000 {
                                             Some(fault_code) => {
                                                 if fault_code != 0 {
                                                     error!(
-                                                        "{} inverter fault code is: {:#08X}",
+                                                        "<i>{}</> inverter fault code is: <b><red>{:#08X}</>",
                                                         self.name, fault_code
                                                     );
                                                 }
