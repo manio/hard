@@ -22,7 +22,7 @@ impl AsyncFile {
         }
     }
 
-    pub async fn _read(&self, out: &mut [u8]) -> io::Result<usize> {
+    pub async fn read(&self, out: &mut [u8]) -> io::Result<usize> {
         loop {
             let mut guard = self.inner.readable().await?;
             match guard.try_io(|inner| inner.get_ref().read(out)) {
@@ -32,7 +32,7 @@ impl AsyncFile {
         }
     }
 
-    pub async fn read_exact(&self, out: &mut [u8]) -> io::Result<()> {
+    pub async fn _read_exact(&self, out: &mut [u8]) -> io::Result<()> {
         loop {
             let mut guard = self.inner.readable().await?;
             match guard.try_io(|inner| inner.get_ref().read_exact(out)) {

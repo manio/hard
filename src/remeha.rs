@@ -508,7 +508,7 @@ impl Remeha {
         }
         let now = Instant::now();
 
-        let retval = device.read_exact(&mut buffer);
+        let retval = device.read(&mut buffer);
         match timeout(Duration::from_secs_f32(2.5), retval).await {
             Ok(res) => match res {
                 Ok(_) => {
