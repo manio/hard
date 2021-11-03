@@ -62,19 +62,18 @@ fn get_config_bool(option_name: &str, section: Option<&str>) -> bool {
 }
 
 fn logging_init() {
-    let mut conf = Config::default();
-    conf.time_format = Some("%F, %H:%M:%S%.3f");
+    let conf = ConfigBuilder::new()
+        .set_time_format("%F, %H:%M:%S%.3f".to_string())
+        .build();
 
     let mut loggers = vec![];
 
-    let console_logger: Box<dyn SharedLogger> = match TermLogger::new(LevelFilter::Info, conf) {
-        Some(logger) => logger,
-        None => {
-            let mut conf_no_date = conf.clone();
-            conf_no_date.time_format = Some("");
-            SimpleLogger::new(LevelFilter::Info, conf_no_date)
-        }
-    };
+    let console_logger: Box<dyn SharedLogger> = TermLogger::new(
+        LevelFilter::Info,
+        conf.clone(),
+        TerminalMode::Mixed,
+        ColorChoice::Auto,
+    );
     loggers.push(console_logger);
 
     let mut logfile_error: Option<String> = None;
