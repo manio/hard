@@ -1080,17 +1080,24 @@ impl Sun2000 {
                         break; //read next parameter
                     }
                     Err(e) => {
-                        error!(
+                        let msg = format!(
                             "{}: read error (attempt #{} of {}), register: {}, error: {}",
                             self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
                         );
                         match e.kind() {
                             ErrorKind::BrokenPipe | ErrorKind::ConnectionReset => {
+                                error!("{}", msg);
                                 disconnected = true;
                                 break;
                             }
                             _ => {
-                                continue;
+                                if attempts == SUN2000_ATTEMPTS_PER_PARAM {
+                                    error!("{}", msg);
+                                    break;
+                                } else {
+                                    warn!("{}", msg);
+                                    continue;
+                                };
                             }
                         }
                     }
