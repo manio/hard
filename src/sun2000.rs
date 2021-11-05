@@ -1005,9 +1005,12 @@ impl Sun2000 {
                 debug!("-> obtaining {} ({:?})...", p.name, p.desc);
                 let retval = ctx.read_holding_registers(p.reg_address, p.len);
                 let read_res;
-                match timeout(Duration::from_secs_f32(3.5), retval).await {
+                let start = Instant::now();
+                let read_time;
+                match timeout(Duration::from_secs_f32(5.0), retval).await {
                     Ok(res) => {
                         read_res = res;
+                        read_time = start.elapsed();
                     }
                     Err(e) => {
                         error!(
@@ -1019,6 +1022,13 @@ impl Sun2000 {
                 }
                 match read_res {
                     Ok(data) => {
+                        if read_time > Duration::from_secs_f32(3.5) {
+                            warn!(
+                                "<i>{}</i>: inverter has lagged during read, register: <green><i>{}</>, read time: <b>{:?}</>",
+                                self.name, p.name, read_time
+                            );
+                        }
+
                         let mut val;
                         match &p.value {
                             ParamKind::Text(_) => {
@@ -1082,8 +1092,8 @@ impl Sun2000 {
                     }
                     Err(e) => {
                         let msg = format!(
-                            "<i>{}</i>: read error (attempt #{} of {}), register: <green><i>{}</>, error: <b>{}</>",
-                            self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
+                            "<i>{}</i>: read error (attempt #{} of {}), register: <green><i>{}</>, error: <b>{}</>, read time: <b>{:?}</>",
+                            self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e, read_time
                         );
                         match e.kind() {
                             ErrorKind::BrokenPipe | ErrorKind::ConnectionReset => {
