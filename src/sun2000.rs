@@ -1013,11 +1013,17 @@ impl Sun2000 {
                         read_time = start.elapsed();
                     }
                     Err(e) => {
-                        error!(
+                        let msg = format!(
                             "<i>{}</i>: read timeout (attempt #{} of {}), register: <green><i>{}</>, error: <b>{}</>",
                             self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
                         );
-                        continue;
+                        if attempts == SUN2000_ATTEMPTS_PER_PARAM {
+                            error!("{}", msg);
+                            break;
+                        } else {
+                            warn!("{}", msg);
+                            continue;
+                        };
                     }
                 }
                 match read_res {
