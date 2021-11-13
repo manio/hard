@@ -62,6 +62,7 @@ fn get_config_bool(option_name: &str, section: Option<&str>) -> bool {
 fn logging_init() {
     let conf = ConfigBuilder::new()
         .set_time_format("%F, %H:%M:%S%.3f".to_string())
+        .set_write_log_enable_colors(true)
         .build();
 
     let mut loggers = vec![];
