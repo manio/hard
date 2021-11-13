@@ -15,6 +15,7 @@ use crate::rfid::RfidTag;
 use futures::future::join_all;
 use humantime::format_duration;
 use std::collections::HashMap;
+use std::env;
 use std::fs::OpenOptions;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -103,6 +104,7 @@ fn logging_init() {
 
 #[tokio::main]
 async fn main() {
+    env::set_var("RUST_BACKTRACE", "full");
     let started = Instant::now();
     logging_init();
     info!("🛡 Welcome to hard (home automation rust-daemon)");
