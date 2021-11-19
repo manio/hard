@@ -51,6 +51,12 @@ pub const YEELIGHT_DURATION_MS: u32 = 500; //duration of above effect
 pub const DAYLIGHT_SUN_DEGREE: f64 = 3.0; //sun elevation for day/night switching
 pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating sun position
 
+#[derive(Debug, PartialEq)]
+pub enum ProlongKind {
+    PIR,
+    External,
+    Switch,
+}
 #[derive(Clone, Debug)]
 pub enum TaskCommand {
     TurnOnProlong,
@@ -176,56 +182,85 @@ pub struct Device {
 impl Device {
     fn turn_on_prolong(
         &mut self,
+        kind: ProlongKind,
         flipflop_block: bool,
         night: bool,
         dest_name: String,
         on: bool,
         currently_off: bool,
+        duration: Option<Duration>,
     ) -> bool {
-        if self.override_mode && on || (!self.pir_exclude && on && (night || self.pir_all_day)) {
-            //checking if device is currently OFF
-            if !self.override_mode && currently_off {
-                if flipflop_block {
-                    warn!(
-                        "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: PIR turn-on request ignored",
-                        dest_name,
-                        self.name,
-                    );
-                } else {
-                    info!(
-                        "<d>- - -</> <i>{}</>: 💡 PIR Turning-ON: <b>{}</>, duration={:?}",
-                        dest_name,
-                        self.name,
-                        format_duration(Duration::from_secs_f32(self.pir_hold_secs)).to_string(),
-                    );
-                    self.stop_after = Some(Duration::from_secs_f32(self.pir_hold_secs));
-                    return true;
-                }
-            } else {
-                let toggled_elapsed = self.last_toggled.unwrap_or(Instant::now()).elapsed();
-                let mut prolong_secs = self.pir_hold_secs;
-                let mut d = Duration::from_secs_f32(prolong_secs);
-                if self.override_mode {
+        if kind == ProlongKind::PIR
+            && !(self.override_mode && on
+                || (!self.pir_exclude && on && (night || self.pir_all_day)))
+        {
+            return false;
+        }
+        let d = match duration {
+            Some(d) => {
+                //if we have a duration pass it directly
+                d
+            }
+            None => {
+                //otherwise take a switch_hold_secs or pir_hold_secs
+                let mut prolong_secs = match kind {
+                    ProlongKind::Switch => self.switch_hold_secs,
+                    _ => self.pir_hold_secs,
+                };
+                if !self.override_mode && currently_off {
+                    if kind == ProlongKind::External
+                        && self.switch_hold_secs != DEFAULT_SWITCH_HOLD_SECS
+                    {
+                        prolong_secs = self.switch_hold_secs
+                    }
+                } else if self.override_mode {
                     if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
                         prolong_secs = DEFAULT_PIR_PROLONG_SECS;
-                        d = Duration::from_secs_f32(prolong_secs);
                     };
-                    if self.switch_hold_secs > prolong_secs
-                        && toggled_elapsed
-                            > Duration::from_secs_f32(self.switch_hold_secs - prolong_secs)
-                    {
-                        self.stop_after = Some(toggled_elapsed.add(d));
-                    }
-                } else {
+                }
+                Duration::from_secs_f32(prolong_secs)
+            }
+        };
+
+        //checking if device is currently OFF
+        if !self.override_mode && currently_off {
+            if flipflop_block {
+                warn!(
+                        "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: {:?} turn-on request ignored",
+                        dest_name,
+                        self.name,
+                        kind,
+                    );
+            } else {
+                info!(
+                    "<d>- - -</> <i>{}</>: 💡 {:?} Turning-ON: <b>{}</>, duration={:?}",
+                    dest_name,
+                    kind,
+                    self.name,
+                    format_duration(d).to_string(),
+                );
+                self.stop_after = Some(d);
+                return true;
+            }
+        } else {
+            let toggled_elapsed = self.last_toggled.unwrap_or(Instant::now()).elapsed();
+            if self.override_mode {
+                if self.switch_hold_secs > d.as_secs_f32()
+                    && toggled_elapsed
+                        > Duration::from_secs_f32(self.switch_hold_secs - d.as_secs_f32())
+                {
                     self.stop_after = Some(toggled_elapsed.add(d));
                 }
-                info!(
-                    "<d>- - -</> <i>{}</>: PIR prolonging: <b>{}</>, duration added: {}",
-                    dest_name,
-                    self.name,
-                    format_duration(d),
-                );
+            } else {
+                self.stop_after = Some(toggled_elapsed.add(d));
             }
+            info!(
+                "<d>- - -</> <i>{}</>: {:?} prolonging: <b>{}</>, duration added: {}",
+                dest_name,
+                kind,
+                self.name,
+                format_duration(d),
+            );
         }
         false
     }
