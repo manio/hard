@@ -160,8 +160,8 @@ impl SensorBoard {
     }
 }
 
-pub struct Relay {
-    pub id_relay: i32,
+pub struct Device {
+    pub id: i32,
     pub name: String,
     pub tags: Vec<String>,
     pub pir_exclude: bool,
@@ -231,7 +231,7 @@ impl Device {
 }
 
 pub struct RelayBoard {
-    pub relay: [Option<Relay>; 8],
+    pub relay: [Option<Device>; 8],
     pub ow_family: u8,
     pub ow_address: u64,
     pub new_value: Option<u8>,
@@ -588,8 +588,8 @@ impl RelayDevices {
         let old_relay = &relay_board.relay[bit as usize];
 
         //create and attach a relay
-        let relay = Relay {
-            id_relay,
+        let relay = Device {
+            id: id_relay,
             name: name.clone(),
             tags,
             pir_exclude,
@@ -598,7 +598,7 @@ impl RelayDevices {
             pir_all_day,
             override_mode: {
                 if let Some(old_relay) = old_relay {
-                    if old_relay.id_relay == id_relay {
+                    if old_relay.id == id_relay {
                         if old_relay.override_mode {
                             info!(
                                 "{}: {}: 📌 override_mode preserved",
@@ -616,7 +616,7 @@ impl RelayDevices {
             },
             last_toggled: {
                 if let Some(old_relay) = old_relay {
-                    if old_relay.id_relay == id_relay {
+                    if old_relay.id == id_relay {
                         if old_relay.last_toggled.is_some() {
                             info!(
                                 "{}: {}: 📌 last_toggled preserved ({})",
@@ -635,7 +635,7 @@ impl RelayDevices {
             },
             stop_after: {
                 if let Some(old_relay) = old_relay {
-                    if old_relay.id_relay == id_relay {
+                    if old_relay.id == id_relay {
                         if old_relay.stop_after.is_some() {
                             info!(
                                 "{}: {}: 📌 stop_after preserved ({})",
@@ -1319,9 +1319,7 @@ impl OneWire {
                                                                     match &mut rb.relay[i] {
                                                                         Some(relay) => {
                                                                             if associated_relays
-                                                                                .contains(
-                                                                                    &relay.id_relay,
-                                                                                )
+                                                                                .contains(&relay.id)
                                                                             {
                                                                                 //flip-flop protection for too fast state changes
                                                                                 let mut
@@ -1345,7 +1343,7 @@ impl OneWire {
                                                                                             &relay.tags,
                                                                                             night,
                                                                                             flipflop_block,
-                                                                                            relay.id_relay,
+                                                                                            relay.id,
                                                                                         );
                                                                                 if stop_processing {
                                                                                     debug!(
@@ -1369,6 +1367,12 @@ impl OneWire {
                                                                                 match kind_code.as_ref()
                                                                                 {
                                                                                     "PIR_Trigger" => {
+                                                                                        //check if bit is set (relay is off)
+                                                                                        let currently_off = new_state & (1 << i as u8) != 0;
+                                                                                        if relay.turn_on_prolong(flipflop_block, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, currently_off) {
+                                                                                            new_state = new_state & !(1 << i as u8);
+                                                                                            rb.new_value = Some(new_state);
+                                                                                        }
                                                                                     }
                                                                                     "Switch" => {
                                                                                         if flipflop_block {
@@ -1522,7 +1526,7 @@ impl OneWire {
                                                                         relay.last_toggled =
                                                                             Some(Instant::now());
                                                                         self.increment_relay_counter(
-                                                                            relay.id_relay,
+                                                                            relay.id,
                                                                         );
                                                                     }
                                                                     _ => {}
@@ -1655,7 +1659,7 @@ impl OneWire {
                                                     );
                                                     relay.last_toggled = Some(Instant::now());
                                                     relay.stop_after = None;
-                                                    self.increment_relay_counter(relay.id_relay);
+                                                    self.increment_relay_counter(relay.id);
                                                     rb.new_value = Some(new_state);
                                                 }
                                                 _ => {}
@@ -1803,7 +1807,7 @@ impl OneWire {
                                         .clone()
                                         .into_iter()
                                         .filter(|t| match t.id_relay {
-                                            Some(id) => relay.id_relay == id,
+                                            Some(id) => relay.id == id,
                                             None => match &t.tag_group {
                                                 Some(tag_name) => relay.tags.contains(tag_name),
                                                 None => false,
@@ -1813,7 +1817,7 @@ impl OneWire {
                                     for t in &relay_tasks {
                                         debug!(
                                             "Processing OneWireTask: command={:?}, matched id_relay={}, duration={:?}",
-                                            t.command, relay.id_relay, t.duration
+                                            t.command, relay.id, t.duration
                                         );
 
                                         //flip-flop protection for too fast state changes
@@ -1952,9 +1956,7 @@ impl OneWire {
                                                         relay.stop_after = None;
                                                         relay.override_mode = false;
                                                         rb.new_value = Some(new_state);
-                                                        self.increment_relay_counter(
-                                                            relay.id_relay,
-                                                        );
+                                                        self.increment_relay_counter(relay.id);
                                                     }
                                                 }
                                             }
@@ -2009,9 +2011,7 @@ impl OneWire {
                                                         );
                                                         relay.last_toggled = Some(Instant::now());
                                                         rb.new_value = Some(new_state);
-                                                        self.increment_relay_counter(
-                                                            relay.id_relay,
-                                                        );
+                                                        self.increment_relay_counter(relay.id);
                                                     } else {
                                                         if relay.override_mode {
                                                             info!(
