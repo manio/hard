@@ -1761,66 +1761,17 @@ impl OneWire {
                             match t.command {
                                 TaskCommand::TurnOnProlong => {
                                     //turn on or prolong
-
-                                    let mut d = match t.duration {
-                                        Some(d) => {
-                                            //if we have a duration passed, use it
-                                            d
-                                        }
-                                        None => {
-                                            //otherwise take a switch_hold_secs or pir_hold_secs
-                                            if yeelight.dev.switch_hold_secs
-                                                != DEFAULT_SWITCH_HOLD_SECS
-                                            {
-                                                Duration::from_secs_f32(
-                                                    yeelight.dev.switch_hold_secs,
-                                                )
-                                            } else {
-                                                Duration::from_secs_f32(yeelight.dev.pir_hold_secs)
-                                            }
-                                        }
-                                    };
-
-                                    //checking if yeelight is off
-                                    if !yeelight.dev.override_mode && !yeelight.powered_on {
-                                        if flipflop_block {
-                                            warn!("<d>- - -</> Yeelight: <b>{}</>: ✋ external flip-flop protection: PIR turn-on request ignored", yeelight.dev.name);
-                                        } else {
-                                            info!("<d>- - -</> Yeelight: 💡 external turning ON: <b>{}</>: duration={:?}", yeelight.dev.name, format_duration(d).to_string());
-                                            yeelight.dev.stop_after = Some(d);
-                                            yeelight.turn_on_off(true);
-                                            self.increment_yeelight_counter(yeelight.dev.id);
-                                        }
-                                    } else {
-                                        let toggled_elapsed = yeelight
-                                            .dev
-                                            .last_toggled
-                                            .unwrap_or(Instant::now())
-                                            .elapsed();
-                                        if yeelight.dev.override_mode {
-                                            let mut prolong_secs = yeelight.dev.pir_hold_secs;
-                                            if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
-                                                prolong_secs = DEFAULT_PIR_PROLONG_SECS
-                                            };
-                                            if yeelight.dev.switch_hold_secs > prolong_secs
-                                                && toggled_elapsed
-                                                    > Duration::from_secs_f32(
-                                                        yeelight.dev.switch_hold_secs
-                                                            - prolong_secs,
-                                                    )
-                                            {
-                                                d = Duration::from_secs_f32(prolong_secs);
-                                                yeelight.dev.stop_after =
-                                                    Some(toggled_elapsed.add(d));
-                                            }
-                                        } else {
-                                            yeelight.dev.stop_after = Some(toggled_elapsed.add(d));
-                                        }
-                                        info!(
-                                            "<d>- - -</> Yeelight: external prolonging: <b>{}</>, duration added: {}",
-                                            yeelight.dev.name,
-                                            format_duration(d)
-                                        );
+                                    if yeelight.dev.turn_on_prolong(
+                                        ProlongKind::External,
+                                        flipflop_block,
+                                        night,
+                                        "Yeelight".into(),
+                                        true,
+                                        !yeelight.powered_on,
+                                        t.duration,
+                                    ) {
+                                        yeelight.turn_on_off(true);
+                                        self.increment_yeelight_counter(yeelight.dev.id);
                                     }
                                 }
                                 TaskCommand::TurnOff => {
