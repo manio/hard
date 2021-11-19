@@ -204,10 +204,11 @@ impl Device {
             } else {
                 let toggled_elapsed = self.last_toggled.unwrap_or(Instant::now()).elapsed();
                 let mut prolong_secs = self.pir_hold_secs;
-                let d = Duration::from_secs_f32(prolong_secs);
+                let mut d = Duration::from_secs_f32(prolong_secs);
                 if self.override_mode {
                     if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
-                        prolong_secs = DEFAULT_PIR_PROLONG_SECS
+                        prolong_secs = DEFAULT_PIR_PROLONG_SECS;
+                        d = Duration::from_secs_f32(prolong_secs);
                     };
                     if self.switch_hold_secs > prolong_secs
                         && toggled_elapsed
