@@ -227,6 +227,7 @@ impl Device {
         //visual
         let mode = match kind {
             ProlongKind::Switch => "🔲 Switch toggle".to_string(),
+            ProlongKind::Remote => "🧩 turn-on".to_string(),
             _ => "💡 turn-on".to_string(),
         };
 
