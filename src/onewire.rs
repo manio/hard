@@ -243,6 +243,17 @@ impl Device {
             || (kind == ProlongKind::Remote && !on)
             || (!self.override_mode && currently_off)
         {
+            //flip-flop protection for too fast state changes
+            let mut flipflop_block = false;
+            match self.last_toggled {
+                Some(toggled) => {
+                    if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
+                        flipflop_block = true;
+                    }
+                }
+                _ => {}
+            }
+
             if flipflop_block {
                 warn!(
                         "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: {:?} {} request ignored",
