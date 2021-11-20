@@ -1841,95 +1841,19 @@ impl OneWire {
                                         match t.command {
                                             TaskCommand::TurnOnProlong => {
                                                 //turn on or prolong
-
-                                                let mut d = match t.duration {
-                                                    Some(d) => {
-                                                        //if we have a duration passed, use it
-                                                        d
-                                                    }
-                                                    None => {
-                                                        //otherwise take a switch_hold_secs or pir_hold_secs
-                                                        if relay.switch_hold_secs
-                                                            != DEFAULT_SWITCH_HOLD_SECS
-                                                        {
-                                                            Duration::from_secs_f32(
-                                                                relay.switch_hold_secs,
-                                                            )
-                                                        } else {
-                                                            Duration::from_secs_f32(
-                                                                relay.pir_hold_secs,
-                                                            )
-                                                        }
-                                                    }
-                                                };
-
-                                                //checking if bit is set (relay is off)
-                                                if !relay.override_mode
-                                                    && new_state & (1 << i as u8) != 0
-                                                {
-                                                    if flipflop_block {
-                                                        warn!(
-                                                            "<d>- - -</> <i>{}</>: <b>{}</>: ✋ external flip-flop protection: PIR turn-on request ignored",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            relay.name,
-                                                        );
-                                                    } else {
-                                                        new_state = new_state & !(1 << i as u8);
-                                                        info!(
-                                                            "<d>- - -</> <i>{}</>: 💡 external turning ON: <b>{}</>: bit={} new state: {:#04x} duration={:?}",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            relay.name,
-                                                            i,
-                                                            new_state,
-                                                            format_duration(d).to_string(),
-                                                        );
-                                                        relay.last_toggled = Some(Instant::now());
-                                                        relay.stop_after = Some(d);
-                                                        rb.new_value = Some(new_state);
-                                                    }
-                                                } else {
-                                                    let toggled_elapsed = relay
-                                                        .last_toggled
-                                                        .unwrap_or(Instant::now())
-                                                        .elapsed();
-                                                    let mut prolong_secs = relay.pir_hold_secs;
-                                                    if relay.override_mode {
-                                                        if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
-                                                            prolong_secs = DEFAULT_PIR_PROLONG_SECS
-                                                        };
-                                                        if relay.switch_hold_secs > prolong_secs
-                                                            && toggled_elapsed
-                                                                > Duration::from_secs_f32(
-                                                                    relay.switch_hold_secs
-                                                                        - prolong_secs,
-                                                                )
-                                                        {
-                                                            d = Duration::from_secs_f32(
-                                                                prolong_secs,
-                                                            );
-                                                            relay.stop_after =
-                                                                Some(toggled_elapsed.add(d));
-                                                        }
-                                                    } else {
-                                                        relay.stop_after =
-                                                            Some(toggled_elapsed.add(d));
-                                                    }
-                                                    info!(
-                                                        "<d>- - -</> <i>{}</>: external prolonging: <b>{}</>: bit={}, duration added: {}",
-                                                        get_w1_device_name(
-                                                            rb.ow_family,
-                                                            rb.ow_address
-                                                        ),
-                                                        relay.name,
-                                                        i,
-                                                        format_duration(d),
-                                                    );
+                                                //check if bit is set (relay is off)
+                                                let currently_off = new_state & (1 << i as u8) != 0;
+                                                if relay.turn_on_prolong(
+                                                    ProlongKind::External,
+                                                    flipflop_block,
+                                                    night,
+                                                    get_w1_device_name(rb.ow_family, rb.ow_address),
+                                                    true,
+                                                    currently_off,
+                                                    t.duration,
+                                                ) {
+                                                    new_state = new_state & !(1 << i as u8);
+                                                    rb.new_value = Some(new_state);
                                                 }
                                             }
                                             TaskCommand::TurnOff => {
