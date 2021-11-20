@@ -268,7 +268,7 @@ impl Device {
                     self.stop_after = None;
                     self.override_mode = false;
                 } else {
-                    duration = format!(", duration={:?}", format_duration(d).to_string());
+                    duration = format!(", duration: <b>{}</>", format_duration(d));
                     if kind == ProlongKind::Switch {
                         self.override_mode = true;
                     }
@@ -294,7 +294,7 @@ impl Device {
                 self.stop_after = Some(toggled_elapsed.add(d));
             }
             info!(
-                "<d>- - -</> <i>{}</>: {:?} prolonging: <b>{}</>, duration added: {}",
+                "<d>- - -</> <i>{}</>: {:?} prolonging: <b>{}</>, duration added: <b>{}</>",
                 dest_name,
                 kind,
                 self.name,
