@@ -1505,22 +1505,18 @@ impl OneWire {
                                                                             }
                                                                         }
                                                                         "Switch" => {
-                                                                            if flipflop_block {
-                                                                                warn!(
-                                                                                    "<d>- - -</> Yeelight: <b>{}</>: ✋ flip-flop protection: Switch toggle request ignored",
-                                                                                    yeelight.dev.name,
-                                                                                );
-                                                                            } else {
+                                                                            if yeelight
+                                                                                .dev
+                                                                                .turn_on_prolong(
+                                                                                ProlongKind::Switch,
+                                                                                flipflop_block,
+                                                                                night,
+                                                                                "Yeelight".into(),
+                                                                                on,
+                                                                                false,
+                                                                                None,
+                                                                            ) {
                                                                                 //switching is toggling current state to the opposite:
-                                                                                info!(
-                                                                                    "<d>- - -</> Yeelight: Switch toggle: <b>{}</>: duration={:?}",
-                                                                                    yeelight.dev.name,
-                                                                                    format_duration(Duration::from_secs_f32(yeelight.dev.switch_hold_secs)).to_string(),
-                                                                                );
-                                                                                yeelight
-                                                                                    .dev.override_mode =
-                                                                                    true;
-                                                                                yeelight.dev.stop_after = Some(Duration::from_secs_f32(yeelight.dev.switch_hold_secs));
                                                                                 yeelight
                                                                                     .turn_on_off(
                                                                                     !yeelight
