@@ -1017,7 +1017,6 @@ impl StateMachine {
         sensor_on: bool,
         relay_tags: &Vec<String>,
         night: bool,
-        _flipflop_block: bool,
         id_relay: i32,
     ) -> bool {
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
@@ -1056,7 +1055,6 @@ impl StateMachine {
         _sensor_on: bool,
         _yeelight_tags: &Vec<String>,
         _night: bool,
-        _flipflop_block: bool,
     ) -> bool {
         true
     }
@@ -1401,7 +1399,6 @@ impl OneWire {
                                                                                             on,
                                                                                             &relay.tags,
                                                                                             night,
-                                                                                            flipflop_block,
                                                                                             relay.id,
                                                                                         );
                                                                                 if stop_processing {
@@ -1489,7 +1486,6 @@ impl OneWire {
                                                                                 on,
                                                                                 &yeelight.dev.tags,
                                                                                 night,
-                                                                                flipflop_block,
                                                                             );
                                                                     if stop_processing {
                                                                         debug!(
