@@ -54,7 +54,7 @@ pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating su
 #[derive(Debug, PartialEq)]
 pub enum ProlongKind {
     PIR,
-    External,
+    Remote,
     Switch,
 }
 #[derive(Clone, Debug)]
@@ -209,7 +209,7 @@ impl Device {
                 };
                 if kind != ProlongKind::Switch {
                     if !self.override_mode && currently_off {
-                        if kind == ProlongKind::External
+                        if kind == ProlongKind::Remote
                             && self.switch_hold_secs != DEFAULT_SWITCH_HOLD_SECS
                         {
                             prolong_secs = self.switch_hold_secs
@@ -1749,7 +1749,7 @@ impl OneWire {
                                 TaskCommand::TurnOnProlong => {
                                     //turn on or prolong
                                     if yeelight.dev.turn_on_prolong(
-                                        ProlongKind::External,
+                                        ProlongKind::Remote,
                                         flipflop_block,
                                         night,
                                         "Yeelight".into(),
@@ -1831,7 +1831,7 @@ impl OneWire {
                                                 //check if bit is set (relay is off)
                                                 let currently_off = new_state & (1 << i as u8) != 0;
                                                 if relay.turn_on_prolong(
-                                                    ProlongKind::External,
+                                                    ProlongKind::Remote,
                                                     flipflop_block,
                                                     night,
                                                     get_w1_device_name(rb.ow_family, rb.ow_address),
