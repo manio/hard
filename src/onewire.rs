@@ -1778,19 +1778,17 @@ impl OneWire {
                                     }
                                 }
                                 TaskCommand::TurnOff => {
-                                    if yeelight.powered_on {
-                                        if flipflop_block {
-                                            warn!("<d>- - -</> Yeelight: <b>{}</>: ✋ external flip-flop protection: turn-off toggle request ignored", yeelight.dev.name);
-                                        } else {
-                                            info!(
-                                                "<d>- - -</> Yeelight: external turn-off: <b>{}</>",
-                                                yeelight.dev.name
-                                            );
-                                            yeelight.dev.stop_after = None;
-                                            yeelight.dev.override_mode = false;
-                                            yeelight.turn_on_off(false);
-                                            self.increment_yeelight_counter(yeelight.dev.id);
-                                        }
+                                    if yeelight.dev.turn_on_prolong(
+                                        ProlongKind::Remote,
+                                        flipflop_block,
+                                        night,
+                                        "Yeelight".into(),
+                                        false,
+                                        !yeelight.powered_on,
+                                        t.duration,
+                                    ) {
+                                        yeelight.turn_on_off(false);
+                                        self.increment_yeelight_counter(yeelight.dev.id);
                                     }
                                 }
                                 _ => {}
