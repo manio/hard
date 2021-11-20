@@ -207,38 +207,51 @@ impl Device {
                     ProlongKind::Switch => self.switch_hold_secs,
                     _ => self.pir_hold_secs,
                 };
-                if !self.override_mode && currently_off {
-                    if kind == ProlongKind::External
-                        && self.switch_hold_secs != DEFAULT_SWITCH_HOLD_SECS
-                    {
-                        prolong_secs = self.switch_hold_secs
+                if kind != ProlongKind::Switch {
+                    if !self.override_mode && currently_off {
+                        if kind == ProlongKind::External
+                            && self.switch_hold_secs != DEFAULT_SWITCH_HOLD_SECS
+                        {
+                            prolong_secs = self.switch_hold_secs
+                        }
+                    } else if self.override_mode {
+                        if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
+                            prolong_secs = DEFAULT_PIR_PROLONG_SECS;
+                        };
                     }
-                } else if self.override_mode {
-                    if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
-                        prolong_secs = DEFAULT_PIR_PROLONG_SECS;
-                    };
                 }
                 Duration::from_secs_f32(prolong_secs)
             }
         };
 
+        //visual
+        let mode = match kind {
+            ProlongKind::Switch => "🔲 Switch toggle".to_string(),
+            _ => "💡 turn-on".to_string(),
+        };
+
         //checking if device is currently OFF
-        if !self.override_mode && currently_off {
+        if kind == ProlongKind::Switch || (!self.override_mode && currently_off) {
             if flipflop_block {
                 warn!(
-                        "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: {:?} turn-on request ignored",
+                        "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: {:?} {} request ignored",
                         dest_name,
                         self.name,
                         kind,
+                        mode,
                     );
             } else {
                 info!(
-                    "<d>- - -</> <i>{}</>: 💡 {:?} Turning-ON: <b>{}</>, duration={:?}",
+                    "<d>- - -</> <i>{}</>: {:?} {}: <b>{}</>, duration={:?}",
                     dest_name,
                     kind,
+                    mode,
                     self.name,
                     format_duration(d).to_string(),
                 );
+                if kind == ProlongKind::Switch {
+                    self.override_mode = true;
+                }
                 self.stop_after = Some(d);
                 return true;
             }
