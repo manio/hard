@@ -1388,29 +1388,16 @@ impl OneWire {
                                                                             if associated_relays
                                                                                 .contains(&relay.id)
                                                                             {
-                                                                                //flip-flop protection for too fast state changes
-                                                                                let mut
-                                                                                flipflop_block =
-                                                                                    false;
-                                                                                match relay.last_toggled {
-                                                                                    Some(toggled) => {
-                                                                                        if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
-                                                                                            flipflop_block = true;
-                                                                                        }
-                                                                                    }
-                                                                                    _ => {}
-                                                                                }
-
                                                                                 //check hook function result and stop processing when needed
                                                                                 let stop_processing =
                                                                                     !state_machine
                                                                                         .relay_hook(
-                                                                                            &kind_code,
-                                                                                            on,
-                                                                                            &relay.tags,
-                                                                                            night,
-                                                                                            relay.id,
-                                                                                        );
+                                                                                        &kind_code,
+                                                                                        on,
+                                                                                        &relay.tags,
+                                                                                        night,
+                                                                                        relay.id,
+                                                                                    );
                                                                                 if stop_processing {
                                                                                     debug!(
                                                                                         "{}: {}: stopped processing",
@@ -1477,17 +1464,6 @@ impl OneWire {
                                                                 if associated_yeelights
                                                                     .contains(&yeelight.dev.id)
                                                                 {
-                                                                    //flip-flop protection for too fast state changes
-                                                                    let mut flipflop_block = false;
-                                                                    match yeelight.dev.last_toggled {
-                                                                        Some(toggled) => {
-                                                                            if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
-                                                                                flipflop_block = true;
-                                                                            }
-                                                                        }
-                                                                        _ => {}
-                                                                    }
-
                                                                     //check hook function result and stop processing when needed
                                                                     let stop_processing =
                                                                         !state_machine
@@ -1752,19 +1728,6 @@ impl OneWire {
                         for t in &relay_tasks {
                             debug!("Processing OneWireTask: command={:?}, matched id_yeelight={}, duration={:?}", t.command, yeelight.dev.id, t.duration);
 
-                            //flip-flop protection for too fast state changes
-                            let mut flipflop_block = false;
-                            match yeelight.dev.last_toggled {
-                                Some(toggled) => {
-                                    if toggled.elapsed()
-                                        < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
-                                    {
-                                        flipflop_block = true;
-                                    }
-                                }
-                                _ => {}
-                            }
-
                             match t.command {
                                 TaskCommand::TurnOnProlong => {
                                     //turn on or prolong
@@ -1827,19 +1790,6 @@ impl OneWire {
                                             "Processing OneWireTask: command={:?}, matched id_relay={}, duration={:?}",
                                             t.command, relay.id, t.duration
                                         );
-
-                                        //flip-flop protection for too fast state changes
-                                        let mut flipflop_block = false;
-                                        match relay.last_toggled {
-                                            Some(toggled) => {
-                                                if toggled.elapsed()
-                                                    < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
-                                                {
-                                                    flipflop_block = true;
-                                                }
-                                            }
-                                            _ => {}
-                                        }
 
                                         //check if bit is set (relay is off)
                                         let currently_off = new_state & (1 << i as u8) != 0;
