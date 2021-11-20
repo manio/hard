@@ -183,7 +183,6 @@ impl Device {
     fn turn_on_prolong(
         &mut self,
         kind: ProlongKind,
-        flipflop_block: bool,
         night: bool,
         dest_name: String,
         on: bool,
@@ -1436,13 +1435,13 @@ impl OneWire {
                                                                                     "PIR_Trigger" => {
                                                                                         //check if bit is set (relay is off)
                                                                                         let currently_off = new_state & (1 << i as u8) != 0;
-                                                                                        if relay.turn_on_prolong(ProlongKind::PIR, flipflop_block, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, currently_off, None) {
+                                                                                        if relay.turn_on_prolong(ProlongKind::PIR, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, currently_off, None) {
                                                                                             new_state = new_state & !(1 << i as u8);
                                                                                             rb.new_value = Some(new_state);
                                                                                         }
                                                                                     }
                                                                                     "Switch" => {
-                                                                                        if relay.turn_on_prolong(ProlongKind::Switch, flipflop_block, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, false, None) {
+                                                                                        if relay.turn_on_prolong(ProlongKind::Switch, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, false, None) {
                                                                                             //switching is toggling current state to the opposite:
                                                                                             new_state = new_state ^ (1 << i as u8);
                                                                                             rb.new_value = Some(new_state);
@@ -1512,7 +1511,6 @@ impl OneWire {
                                                                                 .dev
                                                                                 .turn_on_prolong(
                                                                                 ProlongKind::PIR,
-                                                                                flipflop_block,
                                                                                 night,
                                                                                 "Yeelight".into(),
                                                                                 on,
@@ -1532,7 +1530,6 @@ impl OneWire {
                                                                                 .dev
                                                                                 .turn_on_prolong(
                                                                                 ProlongKind::Switch,
-                                                                                flipflop_block,
                                                                                 night,
                                                                                 "Yeelight".into(),
                                                                                 on,
@@ -1773,7 +1770,6 @@ impl OneWire {
                                     //turn on or prolong
                                     if yeelight.dev.turn_on_prolong(
                                         ProlongKind::Remote,
-                                        flipflop_block,
                                         night,
                                         "Yeelight".into(),
                                         true,
@@ -1787,7 +1783,6 @@ impl OneWire {
                                 TaskCommand::TurnOff => {
                                     if yeelight.dev.turn_on_prolong(
                                         ProlongKind::Remote,
-                                        flipflop_block,
                                         night,
                                         "Yeelight".into(),
                                         false,
@@ -1853,7 +1848,6 @@ impl OneWire {
                                                 //turn on or prolong
                                                 if relay.turn_on_prolong(
                                                     ProlongKind::Remote,
-                                                    flipflop_block,
                                                     night,
                                                     get_w1_device_name(rb.ow_family, rb.ow_address),
                                                     true,
@@ -1867,7 +1861,6 @@ impl OneWire {
                                             TaskCommand::TurnOff => {
                                                 if relay.turn_on_prolong(
                                                     ProlongKind::Remote,
-                                                    flipflop_block,
                                                     night,
                                                     get_w1_device_name(rb.ow_family, rb.ow_address),
                                                     false,
