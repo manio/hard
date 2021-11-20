@@ -254,6 +254,7 @@ impl Device {
                     self.override_mode = true;
                 }
                 self.stop_after = Some(d);
+                self.last_toggled = Some(Instant::now());
                 return true;
             }
         } else {
