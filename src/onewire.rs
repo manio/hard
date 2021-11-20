@@ -1788,7 +1788,7 @@ impl OneWire {
                                             );
                                             yeelight.dev.stop_after = None;
                                             yeelight.dev.override_mode = false;
-                                            yeelight.turn_on_off(!yeelight.powered_on);
+                                            yeelight.turn_on_off(false);
                                             self.increment_yeelight_counter(yeelight.dev.id);
                                         }
                                     }
