@@ -1418,31 +1418,9 @@ impl OneWire {
                                                                                         }
                                                                                     }
                                                                                     "Switch" => {
-                                                                                        if flipflop_block {
-                                                                                            warn!(
-                                                                                                "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: Switch toggle request ignored",
-                                                                                                get_w1_device_name(
-                                                                                                    rb.ow_family,
-                                                                                                    rb.ow_address
-                                                                                                ),
-                                                                                                relay.name,
-                                                                                            );
-                                                                                        } else {
+                                                                                        if relay.turn_on_prolong(ProlongKind::Switch, flipflop_block, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, false, None) {
                                                                                             //switching is toggling current state to the opposite:
                                                                                             new_state = new_state ^ (1 << i as u8);
-                                                                                            info!(
-                                                                                                "<d>- - -</> <i>{}</>: 🔲 Switch toggle: <b>{}</>: bit={} new state: {:#04x} duration={:?}",
-                                                                                                get_w1_device_name(
-                                                                                                    rb.ow_family,
-                                                                                                    rb.ow_address
-                                                                                                ),
-                                                                                                relay.name,
-                                                                                                i,
-                                                                                                new_state,
-                                                                                                format_duration(Duration::from_secs_f32(relay.switch_hold_secs)).to_string(),
-                                                                                            );
-                                                                                            relay.override_mode = true;
-                                                                                            relay.stop_after = Some(Duration::from_secs_f32(relay.switch_hold_secs));
                                                                                             rb.new_value = Some(new_state);
                                                                                         }
                                                                                     }
