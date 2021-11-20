@@ -190,9 +190,10 @@ impl Device {
         currently_off: bool,
         duration: Option<Duration>,
     ) -> bool {
-        if kind == ProlongKind::PIR
+        if (kind == ProlongKind::PIR
             && !(self.override_mode && on
-                || (!self.pir_exclude && on && (night || self.pir_all_day)))
+                || (!self.pir_exclude && on && (night || self.pir_all_day))))
+            || (kind == ProlongKind::Remote && !on && currently_off)
         {
             return false;
         }
@@ -227,12 +228,21 @@ impl Device {
         //visual
         let mode = match kind {
             ProlongKind::Switch => "🔲 Switch toggle".to_string(),
-            ProlongKind::Remote => "🧩 turn-on".to_string(),
+            ProlongKind::Remote => format!("🧩 turn-{}", {
+                if on {
+                    "on"
+                } else {
+                    "off"
+                }
+            }),
             _ => "💡 turn-on".to_string(),
         };
 
         //checking if device is currently OFF
-        if kind == ProlongKind::Switch || (!self.override_mode && currently_off) {
+        if kind == ProlongKind::Switch
+            || (kind == ProlongKind::Remote && !on)
+            || (!self.override_mode && currently_off)
+        {
             if flipflop_block {
                 warn!(
                         "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: {:?} {} request ignored",
@@ -242,18 +252,22 @@ impl Device {
                         mode,
                     );
             } else {
-                info!(
-                    "<d>- - -</> <i>{}</>: {:?} {}: <b>{}</>, duration={:?}",
-                    dest_name,
-                    kind,
-                    mode,
-                    self.name,
-                    format_duration(d).to_string(),
-                );
-                if kind == ProlongKind::Switch {
-                    self.override_mode = true;
+                let duration;
+                if kind == ProlongKind::Remote && !on {
+                    duration = "".into();
+                    self.stop_after = None;
+                    self.override_mode = false;
+                } else {
+                    duration = format!(", duration={:?}", format_duration(d).to_string());
+                    if kind == ProlongKind::Switch {
+                        self.override_mode = true;
+                    }
+                    self.stop_after = Some(d);
                 }
-                self.stop_after = Some(d);
+                info!(
+                    "<d>- - -</> <i>{}</>: {:?} {}: <b>{}</>{}",
+                    dest_name, kind, mode, self.name, duration,
+                );
                 self.last_toggled = Some(Instant::now());
                 return true;
             }
