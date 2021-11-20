@@ -1841,11 +1841,11 @@ impl OneWire {
                                             _ => {}
                                         }
 
+                                        //check if bit is set (relay is off)
+                                        let currently_off = new_state & (1 << i as u8) != 0;
                                         match t.command {
                                             TaskCommand::TurnOnProlong => {
                                                 //turn on or prolong
-                                                //check if bit is set (relay is off)
-                                                let currently_off = new_state & (1 << i as u8) != 0;
                                                 if relay.turn_on_prolong(
                                                     ProlongKind::Remote,
                                                     flipflop_block,
@@ -1860,36 +1860,19 @@ impl OneWire {
                                                 }
                                             }
                                             TaskCommand::TurnOff => {
-                                                let on: bool = new_state & (1 << i as u8) == 0;
-                                                if on {
-                                                    if flipflop_block {
-                                                        warn!(
-                                                            "<d>- - -</> <i>{}</>: <b>{}</>: ✋ external flip-flop protection: turn-off toggle request ignored",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            relay.name,
-                                                        );
-                                                    } else {
-                                                        //set a bit -> turn off relay
-                                                        new_state = new_state | (1 << i as u8);
-                                                        info!(
-                                                            "<d>- - -</> <i>{}</>: external turn-off: <b>{}</>: bit={} new state: {:#04x}",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            relay.name,
-                                                            i,
-                                                            new_state,
-                                                        );
-                                                        relay.last_toggled = Some(Instant::now());
-                                                        relay.stop_after = None;
-                                                        relay.override_mode = false;
-                                                        rb.new_value = Some(new_state);
-                                                        self.increment_relay_counter(relay.id);
-                                                    }
+                                                if relay.turn_on_prolong(
+                                                    ProlongKind::Remote,
+                                                    flipflop_block,
+                                                    night,
+                                                    get_w1_device_name(rb.ow_family, rb.ow_address),
+                                                    false,
+                                                    currently_off,
+                                                    t.duration,
+                                                ) {
+                                                    //set a bit -> turn off relay
+                                                    new_state = new_state | (1 << i as u8);
+                                                    rb.new_value = Some(new_state);
+                                                    self.increment_relay_counter(relay.id);
                                                 }
                                             }
                                             _ => {}
