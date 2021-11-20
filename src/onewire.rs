@@ -51,6 +51,12 @@ pub const YEELIGHT_DURATION_MS: u32 = 500; //duration of above effect
 pub const DAYLIGHT_SUN_DEGREE: f64 = 3.0; //sun elevation for day/night switching
 pub const SUN_POS_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between calculating sun position
 
+#[derive(Debug, PartialEq)]
+pub enum ProlongKind {
+    PIR,
+    Remote,
+    Switch,
+}
 #[derive(Clone, Debug)]
 pub enum TaskCommand {
     TurnOnProlong,
@@ -160,8 +166,8 @@ impl SensorBoard {
     }
 }
 
-pub struct Relay {
-    pub id_relay: i32,
+pub struct Device {
+    pub id: i32,
     pub name: String,
     pub tags: Vec<String>,
     pub pir_exclude: bool,
@@ -172,8 +178,135 @@ pub struct Relay {
     pub last_toggled: Option<Instant>,
     pub stop_after: Option<Duration>,
 }
+
+impl Device {
+    fn turn_on_prolong(
+        &mut self,
+        kind: ProlongKind,
+        night: bool,
+        dest_name: String,
+        on: bool,
+        currently_off: bool,
+        duration: Option<Duration>,
+    ) -> bool {
+        if (kind == ProlongKind::PIR
+            && !(self.override_mode && on
+                || (!self.pir_exclude && on && (night || self.pir_all_day))))
+            || (kind == ProlongKind::Remote && !on && currently_off)
+        {
+            return false;
+        }
+        let d = match duration {
+            Some(d) => {
+                //if we have a duration pass it directly
+                d
+            }
+            None => {
+                //otherwise take a switch_hold_secs or pir_hold_secs
+                let mut prolong_secs = match kind {
+                    ProlongKind::Switch => self.switch_hold_secs,
+                    _ => self.pir_hold_secs,
+                };
+                if kind != ProlongKind::Switch {
+                    if !self.override_mode && currently_off {
+                        if kind == ProlongKind::Remote
+                            && self.switch_hold_secs != DEFAULT_SWITCH_HOLD_SECS
+                        {
+                            prolong_secs = self.switch_hold_secs
+                        }
+                    } else if self.override_mode {
+                        if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
+                            prolong_secs = DEFAULT_PIR_PROLONG_SECS;
+                        };
+                    }
+                }
+                Duration::from_secs_f32(prolong_secs)
+            }
+        };
+
+        //visual
+        let mode = match kind {
+            ProlongKind::Switch => "🔲 Switch toggle".to_string(),
+            ProlongKind::Remote => format!("🧩 turn-{}", {
+                if on {
+                    "on"
+                } else {
+                    "off"
+                }
+            }),
+            _ => "💡 turn-on".to_string(),
+        };
+
+        //checking if device is currently OFF
+        if kind == ProlongKind::Switch
+            || (kind == ProlongKind::Remote && !on)
+            || (!self.override_mode && currently_off)
+        {
+            //flip-flop protection for too fast state changes
+            let mut flipflop_block = false;
+            match self.last_toggled {
+                Some(toggled) => {
+                    if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
+                        flipflop_block = true;
+                    }
+                }
+                _ => {}
+            }
+
+            if flipflop_block {
+                warn!(
+                        "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: {:?} {} request ignored",
+                        dest_name,
+                        self.name,
+                        kind,
+                        mode,
+                    );
+            } else {
+                let duration;
+                if kind == ProlongKind::Remote && !on {
+                    duration = "".into();
+                    self.stop_after = None;
+                    self.override_mode = false;
+                } else {
+                    duration = format!(", duration={:?}", format_duration(d).to_string());
+                    if kind == ProlongKind::Switch {
+                        self.override_mode = true;
+                    }
+                    self.stop_after = Some(d);
+                }
+                info!(
+                    "<d>- - -</> <i>{}</>: {:?} {}: <b>{}</>{}",
+                    dest_name, kind, mode, self.name, duration,
+                );
+                self.last_toggled = Some(Instant::now());
+                return true;
+            }
+        } else {
+            let toggled_elapsed = self.last_toggled.unwrap_or(Instant::now()).elapsed();
+            if self.override_mode {
+                if self.switch_hold_secs > d.as_secs_f32()
+                    && toggled_elapsed
+                        > Duration::from_secs_f32(self.switch_hold_secs - d.as_secs_f32())
+                {
+                    self.stop_after = Some(toggled_elapsed.add(d));
+                }
+            } else {
+                self.stop_after = Some(toggled_elapsed.add(d));
+            }
+            info!(
+                "<d>- - -</> <i>{}</>: {:?} prolonging: <b>{}</>, duration added: {}",
+                dest_name,
+                kind,
+                self.name,
+                format_duration(d),
+            );
+        }
+        false
+    }
+}
+
 pub struct RelayBoard {
-    pub relay: [Option<Relay>; 8],
+    pub relay: [Option<Device>; 8],
     pub ow_family: u8,
     pub ow_address: u64,
     pub new_value: Option<u8>,
@@ -256,17 +389,8 @@ impl RelayBoard {
 }
 
 pub struct Yeelight {
-    pub id_yeelight: i32,
-    pub name: String,
-    pub tags: Vec<String>,
+    pub dev: Device,
     pub ip_address: String,
-    pub pir_exclude: bool,
-    pub pir_hold_secs: f32,
-    pub switch_hold_secs: f32,
-    pub pir_all_day: bool,
-    pub override_mode: bool,
-    pub last_toggled: Option<Instant>,
-    pub stop_after: Option<Duration>,
     pub powered_on: bool,
 }
 
@@ -369,12 +493,12 @@ impl Yeelight {
     }
 
     fn turn_on_off(&mut self, turn_on: bool) {
-        let yeelight_name = self.name.clone();
+        let yeelight_name = self.dev.name.clone();
         let ip_address = self.ip_address.clone();
         thread::spawn(move || Yeelight::yeelight_tcp_command(yeelight_name, ip_address, turn_on));
 
         self.powered_on = turn_on;
-        self.last_toggled = Some(Instant::now());
+        self.dev.last_toggled = Some(Instant::now());
     }
 }
 
@@ -530,8 +654,8 @@ impl RelayDevices {
         let old_relay = &relay_board.relay[bit as usize];
 
         //create and attach a relay
-        let relay = Relay {
-            id_relay,
+        let relay = Device {
+            id: id_relay,
             name: name.clone(),
             tags,
             pir_exclude,
@@ -540,7 +664,7 @@ impl RelayDevices {
             pir_all_day,
             override_mode: {
                 if let Some(old_relay) = old_relay {
-                    if old_relay.id_relay == id_relay {
+                    if old_relay.id == id_relay {
                         if old_relay.override_mode {
                             info!(
                                 "{}: {}: 📌 override_mode preserved",
@@ -558,7 +682,7 @@ impl RelayDevices {
             },
             last_toggled: {
                 if let Some(old_relay) = old_relay {
-                    if old_relay.id_relay == id_relay {
+                    if old_relay.id == id_relay {
                         if old_relay.last_toggled.is_some() {
                             info!(
                                 "{}: {}: 📌 last_toggled preserved ({})",
@@ -577,7 +701,7 @@ impl RelayDevices {
             },
             stop_after: {
                 if let Some(old_relay) = old_relay {
-                    if old_relay.id_relay == id_relay {
+                    if old_relay.id == id_relay {
                         if old_relay.stop_after.is_some() {
                             info!(
                                 "{}: {}: 📌 stop_after preserved ({})",
@@ -610,11 +734,10 @@ impl RelayDevices {
         tags: Vec<String>,
     ) {
         //create and add a yeelight
-        let light = Yeelight {
-            id_yeelight,
+        let dev = Device {
+            id: id_yeelight,
             name,
             tags,
-            ip_address,
             pir_exclude,
             pir_hold_secs: pir_hold_secs.unwrap_or(DEFAULT_PIR_HOLD_SECS),
             switch_hold_secs: switch_hold_secs.unwrap_or(DEFAULT_SWITCH_HOLD_SECS),
@@ -622,6 +745,10 @@ impl RelayDevices {
             override_mode: false,
             last_toggled: None,
             stop_after: None,
+        };
+        let light = Yeelight {
+            dev,
+            ip_address,
             powered_on: false,
         };
         self.yeelight.push(light);
@@ -900,7 +1027,6 @@ impl StateMachine {
         sensor_on: bool,
         relay_tags: &Vec<String>,
         night: bool,
-        _flipflop_block: bool,
         id_relay: i32,
     ) -> bool {
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
@@ -939,7 +1065,6 @@ impl StateMachine {
         _sensor_on: bool,
         _yeelight_tags: &Vec<String>,
         _night: bool,
-        _flipflop_block: bool,
     ) -> bool {
         true
     }
@@ -1261,34 +1386,18 @@ impl OneWire {
                                                                     match &mut rb.relay[i] {
                                                                         Some(relay) => {
                                                                             if associated_relays
-                                                                                .contains(
-                                                                                    &relay.id_relay,
-                                                                                )
+                                                                                .contains(&relay.id)
                                                                             {
-                                                                                //flip-flop protection for too fast state changes
-                                                                                let mut
-                                                                                flipflop_block =
-                                                                                    false;
-                                                                                match relay.last_toggled {
-                                                                                    Some(toggled) => {
-                                                                                        if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
-                                                                                            flipflop_block = true;
-                                                                                        }
-                                                                                    }
-                                                                                    _ => {}
-                                                                                }
-
                                                                                 //check hook function result and stop processing when needed
                                                                                 let stop_processing =
                                                                                     !state_machine
                                                                                         .relay_hook(
-                                                                                            &kind_code,
-                                                                                            on,
-                                                                                            &relay.tags,
-                                                                                            night,
-                                                                                            flipflop_block,
-                                                                                            relay.id_relay,
-                                                                                        );
+                                                                                        &kind_code,
+                                                                                        on,
+                                                                                        &relay.tags,
+                                                                                        night,
+                                                                                        relay.id,
+                                                                                    );
                                                                                 if stop_processing {
                                                                                     debug!(
                                                                                         "{}: {}: stopped processing",
@@ -1311,90 +1420,17 @@ impl OneWire {
                                                                                 match kind_code.as_ref()
                                                                                 {
                                                                                     "PIR_Trigger" => {
-                                                                                        if relay.override_mode && on || (!relay
-                                                                                            .pir_exclude
-                                                                                            && on && (night || relay.pir_all_day))
-                                                                                        {
-                                                                                            //checking if bit is set (relay is off)
-                                                                                            if !relay.override_mode && new_state & (1 << i as u8) != 0 {
-                                                                                                if flipflop_block {
-                                                                                                    warn!(
-                                                                                                        "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: PIR turn-on request ignored",
-                                                                                                        get_w1_device_name(
-                                                                                                            rb.ow_family,
-                                                                                                            rb.ow_address
-                                                                                                        ),
-                                                                                                        relay.name,
-                                                                                                    );
-                                                                                                } else {
-                                                                                                    new_state = new_state & !(1 << i as u8);
-                                                                                                    info!(
-                                                                                                        "<d>- - -</> <i>{}</>: 💡 PIR Turning-ON: <b>{}</>: bit={} new state: {:#04x} duration={:?}",
-                                                                                                        get_w1_device_name(
-                                                                                                            rb.ow_family,
-                                                                                                            rb.ow_address
-                                                                                                        ),
-                                                                                                        relay.name,
-                                                                                                        i,
-                                                                                                        new_state,
-                                                                                                        format_duration(Duration::from_secs_f32(relay.pir_hold_secs)).to_string(),
-                                                                                                    );
-                                                                                                    relay.stop_after = Some(Duration::from_secs_f32(relay.pir_hold_secs));
-                                                                                                    rb.new_value = Some(new_state);
-                                                                                                }
-                                                                                            } else {
-                                                                                                let toggled_elapsed = relay.last_toggled.unwrap_or(Instant::now()).elapsed();
-                                                                                                let mut prolong_secs = relay.pir_hold_secs;
-                                                                                                let d = Duration::from_secs_f32(prolong_secs);
-                                                                                                if relay.override_mode {
-                                                                                                    if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
-                                                                                                        prolong_secs = DEFAULT_PIR_PROLONG_SECS
-                                                                                                    };
-                                                                                                    if relay.switch_hold_secs > prolong_secs && toggled_elapsed > Duration::from_secs_f32(relay.switch_hold_secs - prolong_secs) {
-                                                                                                        relay.stop_after = Some(toggled_elapsed.add(d));
-                                                                                                    }
-                                                                                                } else {
-                                                                                                    relay.stop_after = Some(toggled_elapsed.add(d));
-                                                                                                }
-                                                                                                info!(
-                                                                                                    "<d>- - -</> <i>{}</>: PIR prolonging: <b>{}</>: bit={}, duration added: {}",
-                                                                                                    get_w1_device_name(
-                                                                                                        rb.ow_family,
-                                                                                                        rb.ow_address
-                                                                                                    ),
-                                                                                                    relay.name,
-                                                                                                    i,
-                                                                                                    format_duration(d),
-                                                                                                );
-                                                                                            }
+                                                                                        //check if bit is set (relay is off)
+                                                                                        let currently_off = new_state & (1 << i as u8) != 0;
+                                                                                        if relay.turn_on_prolong(ProlongKind::PIR, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, currently_off, None) {
+                                                                                            new_state = new_state & !(1 << i as u8);
+                                                                                            rb.new_value = Some(new_state);
                                                                                         }
                                                                                     }
                                                                                     "Switch" => {
-                                                                                        if flipflop_block {
-                                                                                            warn!(
-                                                                                                "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: Switch toggle request ignored",
-                                                                                                get_w1_device_name(
-                                                                                                    rb.ow_family,
-                                                                                                    rb.ow_address
-                                                                                                ),
-                                                                                                relay.name,
-                                                                                            );
-                                                                                        } else {
+                                                                                        if relay.turn_on_prolong(ProlongKind::Switch, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, false, None) {
                                                                                             //switching is toggling current state to the opposite:
                                                                                             new_state = new_state ^ (1 << i as u8);
-                                                                                            info!(
-                                                                                                "<d>- - -</> <i>{}</>: 🔲 Switch toggle: <b>{}</>: bit={} new state: {:#04x} duration={:?}",
-                                                                                                get_w1_device_name(
-                                                                                                    rb.ow_family,
-                                                                                                    rb.ow_address
-                                                                                                ),
-                                                                                                relay.name,
-                                                                                                i,
-                                                                                                new_state,
-                                                                                                format_duration(Duration::from_secs_f32(relay.switch_hold_secs)).to_string(),
-                                                                                            );
-                                                                                            relay.override_mode = true;
-                                                                                            relay.stop_after = Some(Duration::from_secs_f32(relay.switch_hold_secs));
                                                                                             rb.new_value = Some(new_state);
                                                                                         }
                                                                                     }
@@ -1426,111 +1462,63 @@ impl OneWire {
                                                             for yeelight in &mut relay_dev.yeelight
                                                             {
                                                                 if associated_yeelights
-                                                                    .contains(&yeelight.id_yeelight)
+                                                                    .contains(&yeelight.dev.id)
                                                                 {
-                                                                    //flip-flop protection for too fast state changes
-                                                                    let mut flipflop_block = false;
-                                                                    match yeelight.last_toggled {
-                                                                        Some(toggled) => {
-                                                                            if toggled.elapsed() < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS) {
-                                                                                flipflop_block = true;
-                                                                            }
-                                                                        }
-                                                                        _ => {}
-                                                                    }
-
                                                                     //check hook function result and stop processing when needed
                                                                     let stop_processing =
                                                                         !state_machine
                                                                             .yeelight_hook(
                                                                                 &kind_code,
                                                                                 on,
-                                                                                &yeelight.tags,
+                                                                                &yeelight.dev.tags,
                                                                                 night,
-                                                                                flipflop_block,
                                                                             );
                                                                     if stop_processing {
                                                                         debug!(
                                                                             "Yeelight: {}: stopped processing",
-                                                                            yeelight.name,
+                                                                            yeelight.dev.name,
                                                                         );
                                                                         continue;
                                                                     }
 
                                                                     match kind_code.as_ref() {
                                                                         "PIR_Trigger" => {
-                                                                            if yeelight.override_mode && on || (!yeelight.pir_exclude
-                                                                                && on
-                                                                                && (night
-                                                                                || yeelight
-                                                                                .pir_all_day))
-                                                                            {
-                                                                                //checking if yeelight is off
-                                                                                if !yeelight
-                                                                                    .override_mode
-                                                                                    && !yeelight
-                                                                                    .powered_on
-                                                                                {
-                                                                                    if flipflop_block {
-                                                                                        warn!(
-                                                                                            "<d>- - -</> Yeelight: <b>{}</>: ✋ flip-flop protection: PIR turn-on request ignored",
-                                                                                            yeelight.name,
-                                                                                        );
-                                                                                    } else {
-                                                                                        info!(
-                                                                                            "<d>- - -</> Yeelight: 💡 Turning ON: <b>{}</>: duration={:?}",
-                                                                                            yeelight.name,
-                                                                                            format_duration(Duration::from_secs_f32(yeelight.pir_hold_secs)).to_string(),
-                                                                                        );
-                                                                                        yeelight.stop_after = Some(Duration::from_secs_f32(yeelight.pir_hold_secs));
-                                                                                        yeelight.turn_on_off(true);
-                                                                                        self.increment_yeelight_counter(yeelight.id_yeelight);
-                                                                                    }
-                                                                                } else {
-                                                                                    let toggled_elapsed = yeelight.last_toggled.unwrap_or(Instant::now()).elapsed();
-                                                                                    let mut prolong_secs = yeelight.pir_hold_secs;
-                                                                                    let d = Duration::from_secs_f32(prolong_secs);
-                                                                                    if yeelight.override_mode {
-                                                                                         if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
-                                                                                             prolong_secs = DEFAULT_PIR_PROLONG_SECS
-                                                                                         };
-                                                                                         if yeelight.switch_hold_secs > prolong_secs && toggled_elapsed > Duration::from_secs_f32(yeelight.switch_hold_secs - prolong_secs) {
-                                                                                            yeelight.stop_after = Some(toggled_elapsed.add(d));
-                                                                                        }
-                                                                                    } else {
-                                                                                        yeelight.stop_after = Some(toggled_elapsed.add(d));
-                                                                                    }
-                                                                                    info!(
-                                                                                        "<d>- - -</> Yeelight: prolonging: <b>{}</>, duration added: {}",
-                                                                                        yeelight.name,
-                                                                                        format_duration(d),
+                                                                            if yeelight
+                                                                                .dev
+                                                                                .turn_on_prolong(
+                                                                                ProlongKind::PIR,
+                                                                                night,
+                                                                                "Yeelight".into(),
+                                                                                on,
+                                                                                !yeelight
+                                                                                    .powered_on,
+                                                                                None,
+                                                                            ) {
+                                                                                yeelight
+                                                                                    .turn_on_off(
+                                                                                        true,
                                                                                     );
-                                                                                }
+                                                                                self.increment_yeelight_counter(yeelight.dev.id);
                                                                             }
                                                                         }
                                                                         "Switch" => {
-                                                                            if flipflop_block {
-                                                                                warn!(
-                                                                                    "<d>- - -</> Yeelight: <b>{}</>: ✋ flip-flop protection: Switch toggle request ignored",
-                                                                                    yeelight.name,
-                                                                                );
-                                                                            } else {
+                                                                            if yeelight
+                                                                                .dev
+                                                                                .turn_on_prolong(
+                                                                                ProlongKind::Switch,
+                                                                                night,
+                                                                                "Yeelight".into(),
+                                                                                on,
+                                                                                false,
+                                                                                None,
+                                                                            ) {
                                                                                 //switching is toggling current state to the opposite:
-                                                                                info!(
-                                                                                    "<d>- - -</> Yeelight: Switch toggle: <b>{}</>: duration={:?}",
-                                                                                    yeelight.name,
-                                                                                    format_duration(Duration::from_secs_f32(yeelight.switch_hold_secs)).to_string(),
-                                                                                );
-                                                                                yeelight
-                                                                                    .override_mode =
-                                                                                    true;
-                                                                                yeelight.stop_after = Some(Duration::from_secs_f32(yeelight.switch_hold_secs));
                                                                                 yeelight
                                                                                     .turn_on_off(
                                                                                     !yeelight
                                                                                         .powered_on,
                                                                                 );
-                                                                                self.increment_yeelight_counter(yeelight.id_yeelight);
+                                                                                self.increment_yeelight_counter(yeelight.dev.id);
                                                                             }
                                                                         }
                                                                         _ => {
@@ -1569,7 +1557,7 @@ impl OneWire {
                                                                         relay.last_toggled =
                                                                             Some(Instant::now());
                                                                         self.increment_relay_counter(
-                                                                            relay.id_relay,
+                                                                            relay.id,
                                                                         );
                                                                     }
                                                                     _ => {}
@@ -1702,7 +1690,7 @@ impl OneWire {
                                                     );
                                                     relay.last_toggled = Some(Instant::now());
                                                     relay.stop_after = None;
-                                                    self.increment_relay_counter(relay.id_relay);
+                                                    self.increment_relay_counter(relay.id);
                                                     rb.new_value = Some(new_state);
                                                 }
                                                 _ => {}
@@ -1730,102 +1718,42 @@ impl OneWire {
                             .clone()
                             .into_iter()
                             .filter(|t| match t.id_yeelight {
-                                Some(id) => yeelight.id_yeelight == id,
+                                Some(id) => yeelight.dev.id == id,
                                 None => match &t.tag_group {
-                                    Some(tag_name) => yeelight.tags.contains(tag_name),
+                                    Some(tag_name) => yeelight.dev.tags.contains(tag_name),
                                     None => false,
                                 },
                             })
                             .collect();
                         for t in &relay_tasks {
-                            debug!("Processing OneWireTask: command={:?}, matched id_yeelight={}, duration={:?}", t.command, yeelight.id_yeelight, t.duration);
-
-                            //flip-flop protection for too fast state changes
-                            let mut flipflop_block = false;
-                            match yeelight.last_toggled {
-                                Some(toggled) => {
-                                    if toggled.elapsed()
-                                        < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
-                                    {
-                                        flipflop_block = true;
-                                    }
-                                }
-                                _ => {}
-                            }
+                            debug!("Processing OneWireTask: command={:?}, matched id_yeelight={}, duration={:?}", t.command, yeelight.dev.id, t.duration);
 
                             match t.command {
                                 TaskCommand::TurnOnProlong => {
                                     //turn on or prolong
-
-                                    let mut d = match t.duration {
-                                        Some(d) => {
-                                            //if we have a duration passed, use it
-                                            d
-                                        }
-                                        None => {
-                                            //otherwise take a switch_hold_secs or pir_hold_secs
-                                            if yeelight.switch_hold_secs != DEFAULT_SWITCH_HOLD_SECS
-                                            {
-                                                Duration::from_secs_f32(yeelight.switch_hold_secs)
-                                            } else {
-                                                Duration::from_secs_f32(yeelight.pir_hold_secs)
-                                            }
-                                        }
-                                    };
-
-                                    //checking if yeelight is off
-                                    if !yeelight.override_mode && !yeelight.powered_on {
-                                        if flipflop_block {
-                                            warn!("<d>- - -</> Yeelight: <b>{}</>: ✋ external flip-flop protection: PIR turn-on request ignored", yeelight.name);
-                                        } else {
-                                            info!("<d>- - -</> Yeelight: 💡 external turning ON: <b>{}</>: duration={:?}", yeelight.name, format_duration(d).to_string());
-                                            yeelight.stop_after = Some(d);
-                                            yeelight.turn_on_off(true);
-                                            self.increment_yeelight_counter(yeelight.id_yeelight);
-                                        }
-                                    } else {
-                                        let toggled_elapsed = yeelight
-                                            .last_toggled
-                                            .unwrap_or(Instant::now())
-                                            .elapsed();
-                                        if yeelight.override_mode {
-                                            let mut prolong_secs = yeelight.pir_hold_secs;
-                                            if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
-                                                prolong_secs = DEFAULT_PIR_PROLONG_SECS
-                                            };
-                                            if yeelight.switch_hold_secs > prolong_secs
-                                                && toggled_elapsed
-                                                    > Duration::from_secs_f32(
-                                                        yeelight.switch_hold_secs - prolong_secs,
-                                                    )
-                                            {
-                                                d = Duration::from_secs_f32(prolong_secs);
-                                                yeelight.stop_after = Some(toggled_elapsed.add(d));
-                                            }
-                                        } else {
-                                            yeelight.stop_after = Some(toggled_elapsed.add(d));
-                                        }
-                                        info!(
-                                            "<d>- - -</> Yeelight: external prolonging: <b>{}</>, duration added: {}",
-                                            yeelight.name,
-                                            format_duration(d)
-                                        );
+                                    if yeelight.dev.turn_on_prolong(
+                                        ProlongKind::Remote,
+                                        night,
+                                        "Yeelight".into(),
+                                        true,
+                                        !yeelight.powered_on,
+                                        t.duration,
+                                    ) {
+                                        yeelight.turn_on_off(true);
+                                        self.increment_yeelight_counter(yeelight.dev.id);
                                     }
                                 }
                                 TaskCommand::TurnOff => {
-                                    if yeelight.powered_on {
-                                        if flipflop_block {
-                                            warn!("<d>- - -</> Yeelight: <b>{}</>: ✋ external flip-flop protection: turn-off toggle request ignored", yeelight.name);
-                                        } else {
-                                            info!(
-                                                "<d>- - -</> Yeelight: external turn-off: <b>{}</>",
-                                                yeelight.name
-                                            );
-                                            yeelight.stop_after = None;
-                                            yeelight.override_mode = false;
-                                            yeelight.turn_on_off(!yeelight.powered_on);
-                                            self.increment_yeelight_counter(yeelight.id_yeelight);
-                                        }
+                                    if yeelight.dev.turn_on_prolong(
+                                        ProlongKind::Remote,
+                                        night,
+                                        "Yeelight".into(),
+                                        false,
+                                        !yeelight.powered_on,
+                                        t.duration,
+                                    ) {
+                                        yeelight.turn_on_off(false);
+                                        self.increment_yeelight_counter(yeelight.dev.id);
                                     }
                                 }
                                 _ => {}
@@ -1850,7 +1778,7 @@ impl OneWire {
                                         .clone()
                                         .into_iter()
                                         .filter(|t| match t.id_relay {
-                                            Some(id) => relay.id_relay == id,
+                                            Some(id) => relay.id == id,
                                             None => match &t.tag_group {
                                                 Some(tag_name) => relay.tags.contains(tag_name),
                                                 None => false,
@@ -1860,149 +1788,39 @@ impl OneWire {
                                     for t in &relay_tasks {
                                         debug!(
                                             "Processing OneWireTask: command={:?}, matched id_relay={}, duration={:?}",
-                                            t.command, relay.id_relay, t.duration
+                                            t.command, relay.id, t.duration
                                         );
 
-                                        //flip-flop protection for too fast state changes
-                                        let mut flipflop_block = false;
-                                        match relay.last_toggled {
-                                            Some(toggled) => {
-                                                if toggled.elapsed()
-                                                    < Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
-                                                {
-                                                    flipflop_block = true;
-                                                }
-                                            }
-                                            _ => {}
-                                        }
-
+                                        //check if bit is set (relay is off)
+                                        let currently_off = new_state & (1 << i as u8) != 0;
                                         match t.command {
                                             TaskCommand::TurnOnProlong => {
                                                 //turn on or prolong
-
-                                                let mut d = match t.duration {
-                                                    Some(d) => {
-                                                        //if we have a duration passed, use it
-                                                        d
-                                                    }
-                                                    None => {
-                                                        //otherwise take a switch_hold_secs or pir_hold_secs
-                                                        if relay.switch_hold_secs
-                                                            != DEFAULT_SWITCH_HOLD_SECS
-                                                        {
-                                                            Duration::from_secs_f32(
-                                                                relay.switch_hold_secs,
-                                                            )
-                                                        } else {
-                                                            Duration::from_secs_f32(
-                                                                relay.pir_hold_secs,
-                                                            )
-                                                        }
-                                                    }
-                                                };
-
-                                                //checking if bit is set (relay is off)
-                                                if !relay.override_mode
-                                                    && new_state & (1 << i as u8) != 0
-                                                {
-                                                    if flipflop_block {
-                                                        warn!(
-                                                            "<d>- - -</> <i>{}</>: <b>{}</>: ✋ external flip-flop protection: PIR turn-on request ignored",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            relay.name,
-                                                        );
-                                                    } else {
-                                                        new_state = new_state & !(1 << i as u8);
-                                                        info!(
-                                                            "<d>- - -</> <i>{}</>: 💡 external turning ON: <b>{}</>: bit={} new state: {:#04x} duration={:?}",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            relay.name,
-                                                            i,
-                                                            new_state,
-                                                            format_duration(d).to_string(),
-                                                        );
-                                                        relay.last_toggled = Some(Instant::now());
-                                                        relay.stop_after = Some(d);
-                                                        rb.new_value = Some(new_state);
-                                                    }
-                                                } else {
-                                                    let toggled_elapsed = relay
-                                                        .last_toggled
-                                                        .unwrap_or(Instant::now())
-                                                        .elapsed();
-                                                    let mut prolong_secs = relay.pir_hold_secs;
-                                                    if relay.override_mode {
-                                                        if DEFAULT_PIR_PROLONG_SECS > prolong_secs {
-                                                            prolong_secs = DEFAULT_PIR_PROLONG_SECS
-                                                        };
-                                                        if relay.switch_hold_secs > prolong_secs
-                                                            && toggled_elapsed
-                                                                > Duration::from_secs_f32(
-                                                                    relay.switch_hold_secs
-                                                                        - prolong_secs,
-                                                                )
-                                                        {
-                                                            d = Duration::from_secs_f32(
-                                                                prolong_secs,
-                                                            );
-                                                            relay.stop_after =
-                                                                Some(toggled_elapsed.add(d));
-                                                        }
-                                                    } else {
-                                                        relay.stop_after =
-                                                            Some(toggled_elapsed.add(d));
-                                                    }
-                                                    info!(
-                                                        "<d>- - -</> <i>{}</>: external prolonging: <b>{}</>: bit={}, duration added: {}",
-                                                        get_w1_device_name(
-                                                            rb.ow_family,
-                                                            rb.ow_address
-                                                        ),
-                                                        relay.name,
-                                                        i,
-                                                        format_duration(d),
-                                                    );
+                                                if relay.turn_on_prolong(
+                                                    ProlongKind::Remote,
+                                                    night,
+                                                    get_w1_device_name(rb.ow_family, rb.ow_address),
+                                                    true,
+                                                    currently_off,
+                                                    t.duration,
+                                                ) {
+                                                    new_state = new_state & !(1 << i as u8);
+                                                    rb.new_value = Some(new_state);
                                                 }
                                             }
                                             TaskCommand::TurnOff => {
-                                                let on: bool = new_state & (1 << i as u8) == 0;
-                                                if on {
-                                                    if flipflop_block {
-                                                        warn!(
-                                                            "<d>- - -</> <i>{}</>: <b>{}</>: ✋ external flip-flop protection: turn-off toggle request ignored",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            relay.name,
-                                                        );
-                                                    } else {
-                                                        //set a bit -> turn off relay
-                                                        new_state = new_state | (1 << i as u8);
-                                                        info!(
-                                                            "<d>- - -</> <i>{}</>: external turn-off: <b>{}</>: bit={} new state: {:#04x}",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            relay.name,
-                                                            i,
-                                                            new_state,
-                                                        );
-                                                        relay.last_toggled = Some(Instant::now());
-                                                        relay.stop_after = None;
-                                                        relay.override_mode = false;
-                                                        rb.new_value = Some(new_state);
-                                                        self.increment_relay_counter(
-                                                            relay.id_relay,
-                                                        );
-                                                    }
+                                                if relay.turn_on_prolong(
+                                                    ProlongKind::Remote,
+                                                    night,
+                                                    get_w1_device_name(rb.ow_family, rb.ow_address),
+                                                    false,
+                                                    currently_off,
+                                                    t.duration,
+                                                ) {
+                                                    //set a bit -> turn off relay
+                                                    new_state = new_state | (1 << i as u8);
+                                                    rb.new_value = Some(new_state);
+                                                    self.increment_relay_counter(relay.id);
                                                 }
                                             }
                                             _ => {}
@@ -2056,9 +1874,7 @@ impl OneWire {
                                                         );
                                                         relay.last_toggled = Some(Instant::now());
                                                         rb.new_value = Some(new_state);
-                                                        self.increment_relay_counter(
-                                                            relay.id_relay,
-                                                        );
+                                                        self.increment_relay_counter(relay.id);
                                                     } else {
                                                         if relay.override_mode {
                                                             info!(
@@ -2093,28 +1909,28 @@ impl OneWire {
 
                 //checking for auto turn-off of necessary yeelights
                 for yeelight in &mut relay_dev.yeelight {
-                    match yeelight.last_toggled {
-                        Some(toggled) => match yeelight.stop_after {
+                    match yeelight.dev.last_toggled {
+                        Some(toggled) => match yeelight.dev.stop_after {
                             Some(stop_after) => {
                                 if toggled.elapsed()
                                     > Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
                                     && toggled.elapsed() > stop_after
                                 {
                                     if yeelight.powered_on {
-                                        info!("Yeelight: ⌛ Auto turn-off: {}", yeelight.name,);
+                                        info!("Yeelight: ⌛ Auto turn-off: {}", yeelight.dev.name);
                                         yeelight.turn_on_off(false);
-                                        self.increment_yeelight_counter(yeelight.id_yeelight);
+                                        self.increment_yeelight_counter(yeelight.dev.id);
                                     } else {
-                                        if yeelight.override_mode {
+                                        if yeelight.dev.override_mode {
                                             info!(
                                                 "Yeelight: ⏲ End of override mode: {}",
-                                                yeelight.name,
+                                                yeelight.dev.name,
                                             );
                                         }
-                                        yeelight.last_toggled = None;
+                                        yeelight.dev.last_toggled = None;
                                     }
-                                    yeelight.stop_after = None;
-                                    yeelight.override_mode = false;
+                                    yeelight.dev.stop_after = None;
+                                    yeelight.dev.override_mode = false;
                                 }
                             }
                             _ => {}
