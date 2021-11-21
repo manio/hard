@@ -1488,7 +1488,11 @@ impl OneWire {
                                                                                 .turn_on_prolong(
                                                                                 ProlongKind::PIR,
                                                                                 night,
-                                                                                "Yeelight".into(),
+                                                                                format!(
+                                                                                    "Yeelight/{}",
+                                                                                    yeelight
+                                                                                        .ip_address
+                                                                                ),
                                                                                 on,
                                                                                 !yeelight
                                                                                     .powered_on,
@@ -1507,7 +1511,11 @@ impl OneWire {
                                                                                 .turn_on_prolong(
                                                                                 ProlongKind::Switch,
                                                                                 night,
-                                                                                "Yeelight".into(),
+                                                                                format!(
+                                                                                    "Yeelight/{}",
+                                                                                    yeelight
+                                                                                        .ip_address
+                                                                                ),
                                                                                 on,
                                                                                 false,
                                                                                 None,
@@ -1734,7 +1742,7 @@ impl OneWire {
                                     if yeelight.dev.turn_on_prolong(
                                         ProlongKind::Remote,
                                         night,
-                                        "Yeelight".into(),
+                                        format!("Yeelight/{}", yeelight.ip_address),
                                         true,
                                         !yeelight.powered_on,
                                         t.duration,
@@ -1747,7 +1755,7 @@ impl OneWire {
                                     if yeelight.dev.turn_on_prolong(
                                         ProlongKind::Remote,
                                         night,
-                                        "Yeelight".into(),
+                                        format!("Yeelight/{}", yeelight.ip_address),
                                         false,
                                         !yeelight.powered_on,
                                         t.duration,
