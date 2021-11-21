@@ -1886,7 +1886,7 @@ impl OneWire {
                                                     } else {
                                                         if relay.override_mode {
                                                             info!(
-                                                                "{}: ⏲ End of override mode: {}: bit={}",
+                                                                "{}: 🔓 End of override mode: {}: bit={}",
                                                                 get_w1_device_name(
                                                                     rb.ow_family,
                                                                     rb.ow_address
@@ -1931,7 +1931,7 @@ impl OneWire {
                                     } else {
                                         if yeelight.dev.override_mode {
                                             info!(
-                                                "Yeelight: ⏲ End of override mode: {}",
+                                                "Yeelight: 🔓 End of override mode: {}",
                                                 yeelight.dev.name,
                                             );
                                         }
