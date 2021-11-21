@@ -227,14 +227,14 @@ impl Device {
         //visual
         let mode = match kind {
             ProlongKind::Switch => "🔲 Switch toggle".to_string(),
-            ProlongKind::Remote => format!("🧩 turn-{}", {
+            ProlongKind::Remote => format!("🧩 Remote turn-{}", {
                 if on {
                     "on"
                 } else {
                     "off"
                 }
             }),
-            _ => "💡 turn-on".to_string(),
+            ProlongKind::PIR => "💡 PIR turn-on".to_string(),
         };
 
         //checking if device is currently OFF
@@ -255,10 +255,9 @@ impl Device {
 
             if flipflop_block {
                 warn!(
-                        "<d>- - -</> <i>{}</>: <b>{}</>: ✋ flip-flop protection: {:?} {} request ignored",
-                        dest_name,
+                        "<d>- - -</> 🚫 flip-flop protection: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>, {} request ignored",
                         self.name,
-                        kind,
+                        dest_name,
                         mode,
                     );
             } else {
@@ -268,15 +267,15 @@ impl Device {
                     self.stop_after = None;
                     self.override_mode = false;
                 } else {
-                    duration = format!(", duration: <b>{}</>", format_duration(d));
+                    duration = format!(", duration: <yellow>{}</>", format_duration(d));
                     if kind == ProlongKind::Switch {
                         self.override_mode = true;
                     }
                     self.stop_after = Some(d);
                 }
                 info!(
-                    "<d>- - -</> <i>{}</>: {:?} {}: <b>{}</>{}",
-                    dest_name, kind, mode, self.name, duration,
+                    "<d>- - -</> {}: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>{}",
+                    mode, self.name, dest_name, duration,
                 );
                 self.last_toggled = Some(Instant::now());
                 return true;
@@ -294,10 +293,10 @@ impl Device {
                 self.stop_after = Some(toggled_elapsed.add(d));
             }
             info!(
-                "<d>- - -</> <i>{}</>: {:?} prolonging: <b>{}</>, duration added: <b>{}</>",
-                dest_name,
+                "<d>- - -</> ♾️ {:?} prolonged: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>, duration added: <yellow>{}</>",
                 kind,
                 self.name,
+                dest_name,
                 format_duration(d),
             );
         }
