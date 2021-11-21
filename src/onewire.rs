@@ -1421,13 +1421,13 @@ impl OneWire {
                                                                                     "PIR_Trigger" => {
                                                                                         //check if bit is set (relay is off)
                                                                                         let currently_off = new_state & (1 << i as u8) != 0;
-                                                                                        if relay.turn_on_prolong(ProlongKind::PIR, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, currently_off, None) {
+                                                                                        if relay.turn_on_prolong(ProlongKind::PIR, night, format!("relay:{}|bit:{}", get_w1_device_name(rb.ow_family, rb.ow_address), i), on, currently_off, None) {
                                                                                             new_state = new_state & !(1 << i as u8);
                                                                                             rb.new_value = Some(new_state);
                                                                                         }
                                                                                     }
                                                                                     "Switch" => {
-                                                                                        if relay.turn_on_prolong(ProlongKind::Switch, night, get_w1_device_name(rb.ow_family, rb.ow_address), on, false, None) {
+                                                                                        if relay.turn_on_prolong(ProlongKind::Switch, night, format!("relay:{}|bit:{}", get_w1_device_name(rb.ow_family, rb.ow_address), i), on, false, None) {
                                                                                             //switching is toggling current state to the opposite:
                                                                                             new_state = new_state ^ (1 << i as u8);
                                                                                             rb.new_value = Some(new_state);
@@ -1488,7 +1488,7 @@ impl OneWire {
                                                                                 ProlongKind::PIR,
                                                                                 night,
                                                                                 format!(
-                                                                                    "Yeelight/{}",
+                                                                                    "yeelight:{}",
                                                                                     yeelight
                                                                                         .ip_address
                                                                                 ),
@@ -1511,7 +1511,7 @@ impl OneWire {
                                                                                 ProlongKind::Switch,
                                                                                 night,
                                                                                 format!(
-                                                                                    "Yeelight/{}",
+                                                                                    "yeelight:{}",
                                                                                     yeelight
                                                                                         .ip_address
                                                                                 ),
@@ -1741,7 +1741,7 @@ impl OneWire {
                                     if yeelight.dev.turn_on_prolong(
                                         ProlongKind::Remote,
                                         night,
-                                        format!("Yeelight/{}", yeelight.ip_address),
+                                        format!("yeelight:{}", yeelight.ip_address),
                                         true,
                                         !yeelight.powered_on,
                                         t.duration,
@@ -1754,7 +1754,7 @@ impl OneWire {
                                     if yeelight.dev.turn_on_prolong(
                                         ProlongKind::Remote,
                                         night,
-                                        format!("Yeelight/{}", yeelight.ip_address),
+                                        format!("yeelight:{}", yeelight.ip_address),
                                         false,
                                         !yeelight.powered_on,
                                         t.duration,
@@ -1806,7 +1806,14 @@ impl OneWire {
                                                 if relay.turn_on_prolong(
                                                     ProlongKind::Remote,
                                                     night,
-                                                    get_w1_device_name(rb.ow_family, rb.ow_address),
+                                                    format!(
+                                                        "relay:{}|bit:{}",
+                                                        get_w1_device_name(
+                                                            rb.ow_family,
+                                                            rb.ow_address
+                                                        ),
+                                                        i
+                                                    ),
                                                     true,
                                                     currently_off,
                                                     t.duration,
@@ -1819,7 +1826,14 @@ impl OneWire {
                                                 if relay.turn_on_prolong(
                                                     ProlongKind::Remote,
                                                     night,
-                                                    get_w1_device_name(rb.ow_family, rb.ow_address),
+                                                    format!(
+                                                        "relay:{}|bit:{}",
+                                                        get_w1_device_name(
+                                                            rb.ow_family,
+                                                            rb.ow_address
+                                                        ),
+                                                        i
+                                                    ),
                                                     false,
                                                     currently_off,
                                                     t.duration,
