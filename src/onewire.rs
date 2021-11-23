@@ -1937,21 +1937,17 @@ impl OneWire {
                                     > Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
                                     && toggled.elapsed() > stop_after
                                 {
-                                    if yeelight.powered_on {
-                                        info!("Yeelight: ⌛ Auto turn-off: {}", yeelight.dev.name);
+                                    if yeelight.dev.turn_on_prolong(
+                                        ProlongKind::AutoOff,
+                                        night,
+                                        format!("yeelight:{}", yeelight.ip_address),
+                                        false,
+                                        !yeelight.powered_on,
+                                        None,
+                                    ) {
                                         yeelight.turn_on_off(false);
                                         self.increment_yeelight_counter(yeelight.dev.id);
-                                    } else {
-                                        if yeelight.dev.override_mode {
-                                            info!(
-                                                "Yeelight: 🔓 End of override mode: {}",
-                                                yeelight.dev.name,
-                                            );
-                                        }
-                                        yeelight.dev.last_toggled = None;
                                     }
-                                    yeelight.dev.stop_after = None;
-                                    yeelight.dev.override_mode = false;
                                 }
                             }
                             _ => {}
