@@ -269,15 +269,16 @@ impl Device {
                 if (kind == ProlongKind::Remote && !on) || kind == ProlongKind::AutoOff {
                     duration = "".into();
                     self.stop_after = None;
-                    self.override_mode = false;
                     if kind == ProlongKind::AutoOff && currently_off && self.override_mode {
                         info!(
                         "<d>- - -</> 🔓 End of override mode: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>{}",
                         self.name, dest_name, duration,
                     );
                         self.last_toggled = None;
+                        self.override_mode = false;
                         return false;
                     }
+                    self.override_mode = false;
                 } else {
                     duration = format!(", duration: <yellow>{}</>", format_duration(d));
                     if kind == ProlongKind::Switch {
