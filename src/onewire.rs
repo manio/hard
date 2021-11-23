@@ -56,6 +56,7 @@ pub enum ProlongKind {
     PIR,
     Remote,
     Switch,
+    AutoOff,
 }
 #[derive(Clone, Debug)]
 pub enum TaskCommand {
@@ -192,7 +193,9 @@ impl Device {
         if (kind == ProlongKind::PIR
             && !(self.override_mode && on
                 || (!self.pir_exclude && on && (night || self.pir_all_day))))
-            || (kind == ProlongKind::Remote && !on && currently_off)
+            || ((kind == ProlongKind::Remote || kind == ProlongKind::AutoOff)
+                && !on
+                && currently_off)
         {
             return false;
         }
@@ -235,11 +238,12 @@ impl Device {
                 }
             }),
             ProlongKind::PIR => "💡 PIR turn-on".to_string(),
+            ProlongKind::AutoOff => "⌛ Auto turn-off".to_string(),
         };
 
         //checking if device is currently OFF
         if kind == ProlongKind::Switch
-            || (kind == ProlongKind::Remote && !on)
+            || ((kind == ProlongKind::Remote || kind == ProlongKind::AutoOff) && !on)
             || (!self.override_mode && currently_off)
         {
             //flip-flop protection for too fast state changes
@@ -262,10 +266,18 @@ impl Device {
                     );
             } else {
                 let duration;
-                if kind == ProlongKind::Remote && !on {
+                if (kind == ProlongKind::Remote && !on) || kind == ProlongKind::AutoOff {
                     duration = "".into();
                     self.stop_after = None;
                     self.override_mode = false;
+                    if kind == ProlongKind::AutoOff && currently_off && self.override_mode {
+                        info!(
+                        "<d>- - -</> 🔓 End of override mode: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>{}",
+                        self.name, dest_name, duration,
+                    );
+                        self.last_toggled = None;
+                        return false;
+                    }
                 } else {
                     duration = format!(", duration: <yellow>{}</>", format_duration(d));
                     if kind == ProlongKind::Switch {
