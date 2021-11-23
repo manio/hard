@@ -1886,10 +1886,7 @@ impl OneWire {
                                     Some(toggled) => {
                                         match relay.stop_after {
                                             Some(stop_after) => {
-                                                if toggled.elapsed()
-                                                    > Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
-                                                    && toggled.elapsed() > stop_after
-                                                {
+                                                if toggled.elapsed() > stop_after {
                                                     let currently_off =
                                                         new_state & (1 << i as u8) != 0;
                                                     if relay.turn_on_prolong(
@@ -1933,10 +1930,7 @@ impl OneWire {
                     match yeelight.dev.last_toggled {
                         Some(toggled) => match yeelight.dev.stop_after {
                             Some(stop_after) => {
-                                if toggled.elapsed()
-                                    > Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
-                                    && toggled.elapsed() > stop_after
-                                {
+                                if toggled.elapsed() > stop_after {
                                     if yeelight.dev.turn_on_prolong(
                                         ProlongKind::AutoOff,
                                         night,
