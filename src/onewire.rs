@@ -57,6 +57,7 @@ pub enum ProlongKind {
     Remote,
     Switch,
     AutoOff,
+    DayNight,
 }
 #[derive(Clone, Debug)]
 pub enum TaskCommand {
@@ -239,12 +240,20 @@ impl Device {
             }),
             ProlongKind::PIR => "💡 PIR turn-on".to_string(),
             ProlongKind::AutoOff => "⌛ Auto turn-off".to_string(),
+            ProlongKind::DayNight => format!("🌄 Day/night auto turn-{}", {
+                if on {
+                    "on"
+                } else {
+                    "off"
+                }
+            }),
         };
 
         //checking if device is currently OFF
         if kind == ProlongKind::Switch
             || ((kind == ProlongKind::Remote || kind == ProlongKind::AutoOff) && !on)
             || (!self.override_mode && currently_off)
+            || kind == ProlongKind::DayNight
         {
             //flip-flop protection for too fast state changes
             let mut flipflop_block = false;
@@ -266,7 +275,10 @@ impl Device {
                     );
             } else {
                 let duration;
-                if (kind == ProlongKind::Remote && !on) || kind == ProlongKind::AutoOff {
+                if (kind == ProlongKind::Remote && !on)
+                    || kind == ProlongKind::AutoOff
+                    || kind == ProlongKind::DayNight
+                {
                     duration = "".into();
                     self.stop_after = None;
                     if kind == ProlongKind::AutoOff && currently_off && self.override_mode {
