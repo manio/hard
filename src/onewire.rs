@@ -1890,39 +1890,28 @@ impl OneWire {
                                                     > Duration::from_secs_f32(MIN_TOGGLE_DELAY_SECS)
                                                     && toggled.elapsed() > stop_after
                                                 {
-                                                    let on: bool = new_state & (1 << i as u8) == 0;
-                                                    if on {
-                                                        //set a bit -> turn off relay
-                                                        new_state = new_state | (1 << i as u8);
-                                                        info!(
-                                                            "{}: ⌛ Auto turn-off: {}: bit={} new state: {:#04x}",
+                                                    let currently_off =
+                                                        new_state & (1 << i as u8) != 0;
+                                                    if relay.turn_on_prolong(
+                                                        ProlongKind::AutoOff,
+                                                        night,
+                                                        format!(
+                                                            "relay:{}|bit:{}",
                                                             get_w1_device_name(
                                                                 rb.ow_family,
                                                                 rb.ow_address
                                                             ),
-                                                            relay.name,
-                                                            i,
-                                                            new_state,
-                                                        );
-                                                        relay.last_toggled = Some(Instant::now());
+                                                            i
+                                                        ),
+                                                        false,
+                                                        currently_off,
+                                                        None,
+                                                    ) {
+                                                        //set a bit -> turn off relay
+                                                        new_state = new_state | (1 << i as u8);
                                                         rb.new_value = Some(new_state);
                                                         self.increment_relay_counter(relay.id);
-                                                    } else {
-                                                        if relay.override_mode {
-                                                            info!(
-                                                                "{}: 🔓 End of override mode: {}: bit={}",
-                                                                get_w1_device_name(
-                                                                    rb.ow_family,
-                                                                    rb.ow_address
-                                                                ),
-                                                                relay.name,
-                                                                i,
-                                                            );
-                                                        }
-                                                        relay.last_toggled = None;
                                                     }
-                                                    relay.stop_after = None;
-                                                    relay.override_mode = false;
                                                 }
                                             }
                                             _ => {}
