@@ -410,6 +410,13 @@ impl RelayBoard {
             None => (),
         }
     }
+
+    fn get_actual_state(&self) -> u8 {
+        //we will be computing new output byte for a relay board
+        //so first of all get the base/previous value
+        self.new_value
+            .unwrap_or(self.last_value.unwrap_or(DS2408_INITIAL_STATE))
+    }
 }
 
 pub struct Yeelight {
@@ -1433,12 +1440,7 @@ impl OneWire {
                                                                                     continue;
                                                                                 }
 
-                                                                                //we will be computing new output byte for a relay board
-                                                                                //so first of all get the base/previous value
-                                                                                let mut new_state: u8 = match rb.new_value {
-                                                                                    Some(val) => val,
-                                                                                    None => rb.last_value.unwrap_or(DS2408_INITIAL_STATE)
-                                                                                };
+                                                                                let mut new_state: u8 = rb.new_value.unwrap_or(rb.last_value.unwrap_or(DS2408_INITIAL_STATE));
 
                                                                                 match kind_code.as_ref()
                                                                                 {
@@ -1688,12 +1690,7 @@ impl OneWire {
                         }
 
                         for rb in &mut relay_dev.relay_boards {
-                            //we will be eventually computing new output byte for a relay board
-                            //so first of all get the base/previous value
-                            let mut new_state: u8 = match rb.new_value {
-                                Some(val) => val,
-                                None => rb.last_value.unwrap_or(DS2408_INITIAL_STATE),
-                            };
+                            let mut new_state: u8 = rb.get_actual_state();
 
                             //iteration on all relays and check 'all night' tag
                             for i in 0..=7 {
@@ -1799,12 +1796,7 @@ impl OneWire {
 
                     //Relays
                     for rb in &mut relay_dev.relay_boards {
-                        //we will be eventually computing new output byte for a relay board
-                        //so first of all get the base/previous value
-                        let mut new_state: u8 = match rb.new_value {
-                            Some(val) => val,
-                            None => rb.last_value.unwrap_or(DS2408_INITIAL_STATE),
-                        };
+                        let mut new_state: u8 = rb.get_actual_state();
 
                         //iterate all relays in the board
                         for i in 0..=7 {
@@ -1889,12 +1881,7 @@ impl OneWire {
 
                 //checking for auto turn-off of necessary relays
                 for rb in &mut relay_dev.relay_boards {
-                    //we will be eventually computing new output byte for a relay board
-                    //so first of all get the base/previous value
-                    let mut new_state: u8 = match rb.new_value {
-                        Some(val) => val,
-                        None => rb.last_value.unwrap_or(DS2408_INITIAL_STATE),
-                    };
+                    let mut new_state: u8 = rb.get_actual_state();
 
                     //iteration on all relays and check elapsed time
                     for i in 0..=7 {
