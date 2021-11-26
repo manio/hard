@@ -799,7 +799,7 @@ impl RelayDevices {
                     Some(relay) => {
                         if associated_relays.contains(&relay.id) {
                             //check hook function result and stop processing when needed
-                            let stop_processing = !state_machine.relay_hook(
+                            let stop_processing = !state_machine.device_hook(
                                 &kind_code,
                                 on,
                                 &relay.tags,
@@ -879,8 +879,13 @@ impl RelayDevices {
         for yeelight in &mut self.yeelight {
             if associated_yeelights.contains(&yeelight.dev.id) {
                 //check hook function result and stop processing when needed
-                let stop_processing =
-                    !state_machine.yeelight_hook(&kind_code, on, &yeelight.dev.tags, night);
+                let stop_processing = !state_machine.device_hook(
+                    &kind_code,
+                    on,
+                    &yeelight.dev.tags,
+                    night,
+                    yeelight.dev.id,
+                );
                 if stop_processing {
                     debug!("Yeelight: {}: stopped processing", yeelight.dev.name,);
                     continue;
@@ -1187,16 +1192,16 @@ impl StateMachine {
         true
     }
 
-    fn relay_hook(
+    fn device_hook(
         &mut self,
         sensor_kind_code: &str,
         sensor_on: bool,
-        relay_tags: &Vec<String>,
+        tags: &Vec<String>,
         night: bool,
-        id_relay: i32,
+        id: i32,
     ) -> bool {
         if sensor_kind_code == "PIR_Trigger" && sensor_on && night {
-            for tag in relay_tags {
+            for tag in tags {
                 match tag.as_ref() {
                     "night_exclude" => {
                         return false;
@@ -1206,7 +1211,7 @@ impl StateMachine {
             }
         }
 
-        for tag in relay_tags {
+        for tag in tags {
             //if the relay is tagged with 'monitor_in_influxdb' we are saving
             //all changes to influx for such relay
             if tag.starts_with("monitor_in_influxdb") {
@@ -1216,22 +1221,12 @@ impl StateMachine {
                 };
                 let task = DbTask {
                     command: cmd,
-                    value: Some(id_relay),
+                    value: Some(id),
                 };
                 let _ = self.db_transmitter.send(task);
             }
         }
 
-        true
-    }
-
-    fn yeelight_hook(
-        &mut self,
-        _sensor_kind_code: &str,
-        _sensor_on: bool,
-        _yeelight_tags: &Vec<String>,
-        _night: bool,
-    ) -> bool {
         true
     }
 
