@@ -866,6 +866,59 @@ impl RelayDevices {
             }
         }
     }
+
+    pub fn yeelight_sensor_trigger(
+        &mut self,
+        state_machine: &mut StateMachine,
+        onewire: &OneWire,
+        associated_yeelights: &Vec<i32>,
+        kind_code: &str,
+        on: bool,
+        night: bool,
+    ) {
+        for yeelight in &mut self.yeelight {
+            if associated_yeelights.contains(&yeelight.dev.id) {
+                //check hook function result and stop processing when needed
+                let stop_processing =
+                    !state_machine.yeelight_hook(&kind_code, on, &yeelight.dev.tags, night);
+                if stop_processing {
+                    debug!("Yeelight: {}: stopped processing", yeelight.dev.name,);
+                    continue;
+                }
+
+                match kind_code.as_ref() {
+                    "PIR_Trigger" => {
+                        if yeelight.dev.turn_on_prolong(
+                            ProlongKind::PIR,
+                            night,
+                            format!("yeelight:{}", yeelight.ip_address),
+                            on,
+                            !yeelight.powered_on,
+                            None,
+                        ) {
+                            yeelight.turn_on_off(true);
+                            onewire.increment_yeelight_counter(yeelight.dev.id);
+                        }
+                    }
+                    "Switch" => {
+                        if yeelight.dev.turn_on_prolong(
+                            ProlongKind::Switch,
+                            night,
+                            format!("yeelight:{}", yeelight.ip_address),
+                            on,
+                            false,
+                            None,
+                        ) {
+                            //switching is toggling current state to the opposite:
+                            yeelight.turn_on_off(!yeelight.powered_on);
+                            onewire.increment_yeelight_counter(yeelight.dev.id);
+                        }
+                    }
+                    _ => (),
+                }
+            }
+        }
+    }
 }
 
 pub struct CesspoolLevel {
@@ -1506,80 +1559,14 @@ impl OneWire {
                                                         let associated_yeelights =
                                                             &sensor.associated_yeelights;
                                                         if !associated_yeelights.is_empty() {
-                                                            for yeelight in &mut relay_dev.yeelight
-                                                            {
-                                                                if associated_yeelights
-                                                                    .contains(&yeelight.dev.id)
-                                                                {
-                                                                    //check hook function result and stop processing when needed
-                                                                    let stop_processing =
-                                                                        !state_machine
-                                                                            .yeelight_hook(
-                                                                                &kind_code,
-                                                                                on,
-                                                                                &yeelight.dev.tags,
-                                                                                night,
-                                                                            );
-                                                                    if stop_processing {
-                                                                        debug!(
-                                                                            "Yeelight: {}: stopped processing",
-                                                                            yeelight.dev.name,
-                                                                        );
-                                                                        continue;
-                                                                    }
-
-                                                                    match kind_code.as_ref() {
-                                                                        "PIR_Trigger" => {
-                                                                            if yeelight
-                                                                                .dev
-                                                                                .turn_on_prolong(
-                                                                                ProlongKind::PIR,
-                                                                                night,
-                                                                                format!(
-                                                                                    "yeelight:{}",
-                                                                                    yeelight
-                                                                                        .ip_address
-                                                                                ),
-                                                                                on,
-                                                                                !yeelight
-                                                                                    .powered_on,
-                                                                                None,
-                                                                            ) {
-                                                                                yeelight
-                                                                                    .turn_on_off(
-                                                                                        true,
-                                                                                    );
-                                                                                self.increment_yeelight_counter(yeelight.dev.id);
-                                                                            }
-                                                                        }
-                                                                        "Switch" => {
-                                                                            if yeelight
-                                                                                .dev
-                                                                                .turn_on_prolong(
-                                                                                ProlongKind::Switch,
-                                                                                night,
-                                                                                format!(
-                                                                                    "yeelight:{}",
-                                                                                    yeelight
-                                                                                        .ip_address
-                                                                                ),
-                                                                                on,
-                                                                                false,
-                                                                                None,
-                                                                            ) {
-                                                                                //switching is toggling current state to the opposite:
-                                                                                yeelight
-                                                                                    .turn_on_off(
-                                                                                    !yeelight
-                                                                                        .powered_on,
-                                                                                );
-                                                                                self.increment_yeelight_counter(yeelight.dev.id);
-                                                                            }
-                                                                        }
-                                                                        _ => (),
-                                                                    }
-                                                                }
-                                                            }
+                                                            relay_dev.yeelight_sensor_trigger(
+                                                                &mut state_machine,
+                                                                self,
+                                                                associated_yeelights,
+                                                                kind_code,
+                                                                on,
+                                                                night,
+                                                            );
                                                         }
                                                     }
                                                     _ => {}
