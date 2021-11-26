@@ -784,6 +784,88 @@ impl RelayDevices {
         };
         self.yeelight.push(light);
     }
+
+    pub fn relay_sensor_trigger(
+        &mut self,
+        state_machine: &mut StateMachine,
+        associated_relays: &Vec<i32>,
+        kind_code: &str,
+        on: bool,
+        night: bool,
+    ) {
+        for rb in &mut self.relay_boards {
+            for i in 0..=7 {
+                match &mut rb.relay[i] {
+                    Some(relay) => {
+                        if associated_relays.contains(&relay.id) {
+                            //check hook function result and stop processing when needed
+                            let stop_processing = !state_machine.relay_hook(
+                                &kind_code,
+                                on,
+                                &relay.tags,
+                                night,
+                                relay.id,
+                            );
+                            if stop_processing {
+                                debug!(
+                                    "{}: {}: stopped processing",
+                                    get_w1_device_name(rb.ow_family, rb.ow_address),
+                                    relay.name,
+                                );
+                                continue;
+                            }
+
+                            let mut new_state: u8 = rb
+                                .new_value
+                                .unwrap_or(rb.last_value.unwrap_or(DS2408_INITIAL_STATE));
+
+                            match kind_code.as_ref() {
+                                "PIR_Trigger" => {
+                                    //check if bit is set (relay is off)
+                                    let currently_off = new_state & (1 << i as u8) != 0;
+                                    if relay.turn_on_prolong(
+                                        ProlongKind::PIR,
+                                        night,
+                                        format!(
+                                            "relay:{}|bit:{}",
+                                            get_w1_device_name(rb.ow_family, rb.ow_address),
+                                            i
+                                        ),
+                                        on,
+                                        currently_off,
+                                        None,
+                                    ) {
+                                        new_state = new_state & !(1 << i as u8);
+                                        rb.new_value = Some(new_state);
+                                    }
+                                }
+                                "Switch" => {
+                                    if relay.turn_on_prolong(
+                                        ProlongKind::Switch,
+                                        night,
+                                        format!(
+                                            "relay:{}|bit:{}",
+                                            get_w1_device_name(rb.ow_family, rb.ow_address),
+                                            i
+                                        ),
+                                        on,
+                                        false,
+                                        None,
+                                    ) {
+                                        //switching is toggling current state to the opposite:
+                                        new_state = new_state ^ (1 << i as u8);
+                                        rb.new_value = Some(new_state);
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }
 
 pub struct CesspoolLevel {
@@ -1411,62 +1493,13 @@ impl OneWire {
                                                         let associated_relays =
                                                             &sensor.associated_relays;
                                                         if !associated_relays.is_empty() {
-                                                            for rb in &mut relay_dev.relay_boards {
-                                                                for i in 0..=7 {
-                                                                    match &mut rb.relay[i] {
-                                                                        Some(relay) => {
-                                                                            if associated_relays
-                                                                                .contains(&relay.id)
-                                                                            {
-                                                                                //check hook function result and stop processing when needed
-                                                                                let stop_processing =
-                                                                                    !state_machine
-                                                                                        .relay_hook(
-                                                                                        &kind_code,
-                                                                                        on,
-                                                                                        &relay.tags,
-                                                                                        night,
-                                                                                        relay.id,
-                                                                                    );
-                                                                                if stop_processing {
-                                                                                    debug!(
-                                                                                        "{}: {}: stopped processing",
-                                                                                        get_w1_device_name(
-                                                                                            rb.ow_family,
-                                                                                            rb.ow_address
-                                                                                        ),
-                                                                                        relay.name,
-                                                                                    );
-                                                                                    continue;
-                                                                                }
-
-                                                                                let mut new_state: u8 = rb.new_value.unwrap_or(rb.last_value.unwrap_or(DS2408_INITIAL_STATE));
-
-                                                                                match kind_code.as_ref()
-                                                                                {
-                                                                                    "PIR_Trigger" => {
-                                                                                        //check if bit is set (relay is off)
-                                                                                        let currently_off = new_state & (1 << i as u8) != 0;
-                                                                                        if relay.turn_on_prolong(ProlongKind::PIR, night, format!("relay:{}|bit:{}", get_w1_device_name(rb.ow_family, rb.ow_address), i), on, currently_off, None) {
-                                                                                            new_state = new_state & !(1 << i as u8);
-                                                                                            rb.new_value = Some(new_state);
-                                                                                        }
-                                                                                    }
-                                                                                    "Switch" => {
-                                                                                        if relay.turn_on_prolong(ProlongKind::Switch, night, format!("relay:{}|bit:{}", get_w1_device_name(rb.ow_family, rb.ow_address), i), on, false, None) {
-                                                                                            //switching is toggling current state to the opposite:
-                                                                                            new_state = new_state ^ (1 << i as u8);
-                                                                                            rb.new_value = Some(new_state);
-                                                                                        }
-                                                                                    }
-                                                                                    _ => ()
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                        _ => {}
-                                                                    }
-                                                                }
-                                                            }
+                                                            relay_dev.relay_sensor_trigger(
+                                                                &mut state_machine,
+                                                                associated_relays,
+                                                                kind_code,
+                                                                on,
+                                                                night,
+                                                            );
                                                         }
 
                                                         //trigger actions for yeelights
