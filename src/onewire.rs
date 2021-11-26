@@ -1459,18 +1459,7 @@ impl OneWire {
                                                                                             rb.new_value = Some(new_state);
                                                                                         }
                                                                                     }
-                                                                                    _ => {
-                                                                                        error!(
-                                                                                            "{}: {}/{}: unhandled kind: {:?}",
-                                                                                            get_w1_device_name(
-                                                                                                sb.ow_family,
-                                                                                                sb.ow_address
-                                                                                            ),
-                                                                                            pio_name,
-                                                                                            sensor.name,
-                                                                                            kind_code,
-                                                                                        );
-                                                                                    }
+                                                                                    _ => ()
                                                                                 }
                                                                             }
                                                                         }
@@ -1554,14 +1543,7 @@ impl OneWire {
                                                                                 self.increment_yeelight_counter(yeelight.dev.id);
                                                                             }
                                                                         }
-                                                                        _ => {
-                                                                            error!(
-                                                                                "Yeelight: {}/{}: unhandled kind: {:?}",
-                                                                                pio_name,
-                                                                                sensor.name,
-                                                                                kind_code,
-                                                                            );
-                                                                        }
+                                                                        _ => (),
                                                                     }
                                                                 }
                                                             }
