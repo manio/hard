@@ -337,7 +337,7 @@ impl Device {
 trait OnOff {
     fn currently_off(&self, index: Option<usize>) -> bool;
     fn get_dest_name(&self, index: Option<usize>) -> String;
-    fn set_new_value(&mut self, op: Operation, index: Option<usize>);
+    fn set_new_value(&mut self, op: Operation, index: Option<usize>, onewire: Option<&OneWire>);
 }
 
 pub struct RelayBoard {
@@ -444,7 +444,7 @@ impl OnOff for RelayBoard {
         )
     }
 
-    fn set_new_value(&mut self, op: Operation, index: Option<usize>) {
+    fn set_new_value(&mut self, op: Operation, index: Option<usize>, _onewire: Option<&OneWire>) {
         let mut new_state: u8 = self.get_actual_state();
         match op {
             Operation::On => new_state = new_state & !(1 << index.unwrap() as u8),
@@ -582,7 +582,15 @@ impl OnOff for Yeelight {
         format!("yeelight:{}", self.ip_address)
     }
 
-    fn set_new_value(&mut self, _op: Operation, _index: Option<usize>) {}
+    fn set_new_value(&mut self, op: Operation, _index: Option<usize>, onewire: Option<&OneWire>) {
+        let new_state = match op {
+            Operation::On => true,
+            Operation::Off => false,
+            Operation::Toggle => !self.powered_on,
+        };
+        self.turn_on_off(new_state);
+        onewire.unwrap().increment_yeelight_counter(self.dev.id);
+    }
 }
 
 pub struct SensorDevices {
@@ -879,7 +887,7 @@ impl RelayDevices {
                                         currently_off,
                                         None,
                                     ) {
-                                        rb.set_new_value(Operation::On, Some(i));
+                                        rb.set_new_value(Operation::On, Some(i), None);
                                     }
                                 }
                                 "Switch" => {
@@ -891,7 +899,7 @@ impl RelayDevices {
                                         false,
                                         None,
                                     ) {
-                                        rb.set_new_value(Operation::Toggle, Some(i));
+                                        rb.set_new_value(Operation::Toggle, Some(i), None);
                                     }
                                 }
                                 _ => (),
@@ -939,8 +947,7 @@ impl RelayDevices {
                             yeelight.currently_off(None),
                             None,
                         ) {
-                            yeelight.turn_on_off(true);
-                            onewire.increment_yeelight_counter(yeelight.dev.id);
+                            yeelight.set_new_value(Operation::On, None, Some(onewire));
                         }
                     }
                     "Switch" => {
@@ -952,9 +959,7 @@ impl RelayDevices {
                             false,
                             None,
                         ) {
-                            //switching is toggling current state to the opposite:
-                            yeelight.turn_on_off(!yeelight.powered_on);
-                            onewire.increment_yeelight_counter(yeelight.dev.id);
+                            yeelight.set_new_value(Operation::Toggle, None, Some(onewire));
                         }
                     }
                     _ => (),
