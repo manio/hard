@@ -331,6 +331,7 @@ impl Device {
 
 trait OnOff {
     fn currently_off(&self, index: Option<usize>) -> bool;
+    fn get_dest_name(&self, index: Option<usize>) -> String;
 }
 
 pub struct RelayBoard {
@@ -427,6 +428,14 @@ impl OnOff for RelayBoard {
     fn currently_off(&self, index: Option<usize>) -> bool {
         //check if bit is set (relay is off)
         self.get_actual_state() & (1 << index.unwrap() as u8) != 0
+    }
+
+    fn get_dest_name(&self, index: Option<usize>) -> String {
+        format!(
+            "relay:{}|bit:{}",
+            get_w1_device_name(self.ow_family, self.ow_address),
+            index.unwrap()
+        )
     }
 }
 
@@ -547,6 +556,10 @@ impl Yeelight {
 impl OnOff for Yeelight {
     fn currently_off(&self, _index: Option<usize>) -> bool {
         !self.powered_on
+    }
+
+    fn get_dest_name(&self, _index: Option<usize>) -> String {
+        format!("yeelight:{}", self.ip_address)
     }
 }
 
@@ -813,6 +826,7 @@ impl RelayDevices {
         for rb in &mut self.relay_boards {
             for i in 0..=7 {
                 let currently_off = rb.currently_off(Some(i));
+                let dest_name = rb.get_dest_name(Some(i));
                 match &mut rb.relay[i] {
                     Some(relay) => {
                         if associated_relays.contains(&relay.id) {
@@ -842,11 +856,7 @@ impl RelayDevices {
                                     if relay.turn_on_prolong(
                                         ProlongKind::PIR,
                                         night,
-                                        format!(
-                                            "relay:{}|bit:{}",
-                                            get_w1_device_name(rb.ow_family, rb.ow_address),
-                                            i
-                                        ),
+                                        dest_name,
                                         on,
                                         currently_off,
                                         None,
@@ -859,11 +869,7 @@ impl RelayDevices {
                                     if relay.turn_on_prolong(
                                         ProlongKind::Switch,
                                         night,
-                                        format!(
-                                            "relay:{}|bit:{}",
-                                            get_w1_device_name(rb.ow_family, rb.ow_address),
-                                            i
-                                        ),
+                                        dest_name,
                                         on,
                                         false,
                                         None,
@@ -907,12 +913,13 @@ impl RelayDevices {
                     continue;
                 }
 
+                let dest_name = yeelight.get_dest_name(None);
                 match kind_code.as_ref() {
                     "PIR_Trigger" => {
                         if yeelight.dev.turn_on_prolong(
                             ProlongKind::PIR,
                             night,
-                            format!("yeelight:{}", yeelight.ip_address),
+                            dest_name,
                             on,
                             yeelight.currently_off(None),
                             None,
@@ -925,7 +932,7 @@ impl RelayDevices {
                         if yeelight.dev.turn_on_prolong(
                             ProlongKind::Switch,
                             night,
-                            format!("yeelight:{}", yeelight.ip_address),
+                            dest_name,
                             on,
                             false,
                             None,
