@@ -423,6 +423,13 @@ impl RelayBoard {
     }
 }
 
+impl OnOff for RelayBoard {
+    fn currently_off(&self, index: Option<usize>) -> bool {
+        //check if bit is set (relay is off)
+        self.get_actual_state() & (1 << index.unwrap() as u8) != 0
+    }
+}
+
 pub struct Yeelight {
     pub dev: Device,
     pub ip_address: String,
@@ -534,6 +541,12 @@ impl Yeelight {
 
         self.powered_on = turn_on;
         self.dev.last_toggled = Some(Instant::now());
+    }
+}
+
+impl OnOff for Yeelight {
+    fn currently_off(&self, _index: Option<usize>) -> bool {
+        !self.powered_on
     }
 }
 
@@ -799,6 +812,7 @@ impl RelayDevices {
     ) {
         for rb in &mut self.relay_boards {
             for i in 0..=7 {
+                let currently_off = rb.currently_off(Some(i));
                 match &mut rb.relay[i] {
                     Some(relay) => {
                         if associated_relays.contains(&relay.id) {
@@ -825,8 +839,6 @@ impl RelayDevices {
 
                             match kind_code.as_ref() {
                                 "PIR_Trigger" => {
-                                    //check if bit is set (relay is off)
-                                    let currently_off = new_state & (1 << i as u8) != 0;
                                     if relay.turn_on_prolong(
                                         ProlongKind::PIR,
                                         night,
@@ -902,7 +914,7 @@ impl RelayDevices {
                             night,
                             format!("yeelight:{}", yeelight.ip_address),
                             on,
-                            !yeelight.powered_on,
+                            yeelight.currently_off(None),
                             None,
                         ) {
                             yeelight.turn_on_off(true);
