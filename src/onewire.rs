@@ -922,6 +922,8 @@ impl RelayDevices {
         night: bool,
     ) {
         for yeelight in &mut self.yeelight {
+            let currently_off = yeelight.currently_off(None);
+            let dest_name = yeelight.get_dest_name(None);
             if associated_yeelights.contains(&yeelight.dev.id) {
                 //check hook function result and stop processing when needed
                 let stop_processing = !state_machine.device_hook(
@@ -936,7 +938,6 @@ impl RelayDevices {
                     continue;
                 }
 
-                let dest_name = yeelight.get_dest_name(None);
                 match kind_code.as_ref() {
                     "PIR_Trigger" => {
                         if yeelight.dev.turn_on_prolong(
@@ -944,7 +945,7 @@ impl RelayDevices {
                             night,
                             dest_name,
                             on,
-                            yeelight.currently_off(None),
+                            currently_off,
                             None,
                         ) {
                             yeelight.set_new_value(Operation::On, None, Some(onewire));
