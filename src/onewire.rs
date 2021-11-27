@@ -59,6 +59,11 @@ pub enum ProlongKind {
     AutoOff,
     DayNight,
 }
+pub enum Operation {
+    On,
+    Off,
+    Toggle,
+}
 #[derive(Clone, Debug)]
 pub enum TaskCommand {
     TurnOnProlong,
@@ -332,7 +337,7 @@ impl Device {
 trait OnOff {
     fn currently_off(&self, index: Option<usize>) -> bool;
     fn get_dest_name(&self, index: Option<usize>) -> String;
-    fn set_new_value(&mut self, val: u8);
+    fn set_new_value(&mut self, op: Operation, index: Option<usize>);
 }
 
 pub struct RelayBoard {
@@ -439,8 +444,18 @@ impl OnOff for RelayBoard {
         )
     }
 
-    fn set_new_value(&mut self, val: u8) {
-        self.new_value = Some(val);
+    fn set_new_value(&mut self, op: Operation, index: Option<usize>) {
+        let mut new_state: u8 = self.get_actual_state();
+        match op {
+            Operation::On => new_state = new_state & !(1 << index.unwrap() as u8),
+            Operation::Toggle => {
+                //switching is toggling current state to the opposite:
+                new_state = new_state ^ (1 << index.unwrap() as u8);
+            }
+            _ => (),
+        }
+
+        self.new_value = Some(new_state);
     }
 }
 
@@ -567,7 +582,7 @@ impl OnOff for Yeelight {
         format!("yeelight:{}", self.ip_address)
     }
 
-    fn set_new_value(&mut self, _val: u8) {}
+    fn set_new_value(&mut self, _op: Operation, _index: Option<usize>) {}
 }
 
 pub struct SensorDevices {
@@ -834,7 +849,6 @@ impl RelayDevices {
             for i in 0..=7 {
                 let currently_off = rb.currently_off(Some(i));
                 let dest_name = rb.get_dest_name(Some(i));
-                let mut new_state: u8 = rb.get_actual_state();
                 match &mut rb.relay[i] {
                     Some(relay) => {
                         if associated_relays.contains(&relay.id) {
@@ -865,8 +879,7 @@ impl RelayDevices {
                                         currently_off,
                                         None,
                                     ) {
-                                        new_state = new_state & !(1 << i as u8);
-                                        rb.set_new_value(new_state);
+                                        rb.set_new_value(Operation::On, Some(i));
                                     }
                                 }
                                 "Switch" => {
@@ -878,9 +891,7 @@ impl RelayDevices {
                                         false,
                                         None,
                                     ) {
-                                        //switching is toggling current state to the opposite:
-                                        new_state = new_state ^ (1 << i as u8);
-                                        rb.set_new_value(new_state);
+                                        rb.set_new_value(Operation::Toggle, Some(i));
                                     }
                                 }
                                 _ => (),
