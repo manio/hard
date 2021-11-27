@@ -332,6 +332,7 @@ impl Device {
 trait OnOff {
     fn currently_off(&self, index: Option<usize>) -> bool;
     fn get_dest_name(&self, index: Option<usize>) -> String;
+    fn set_new_value(&mut self, val: u8);
 }
 
 pub struct RelayBoard {
@@ -436,6 +437,10 @@ impl OnOff for RelayBoard {
             get_w1_device_name(self.ow_family, self.ow_address),
             index.unwrap()
         )
+    }
+
+    fn set_new_value(&mut self, val: u8) {
+        self.new_value = Some(val);
     }
 }
 
@@ -561,6 +566,8 @@ impl OnOff for Yeelight {
     fn get_dest_name(&self, _index: Option<usize>) -> String {
         format!("yeelight:{}", self.ip_address)
     }
+
+    fn set_new_value(&mut self, _val: u8) {}
 }
 
 pub struct SensorDevices {
@@ -859,7 +866,7 @@ impl RelayDevices {
                                         None,
                                     ) {
                                         new_state = new_state & !(1 << i as u8);
-                                        rb.new_value = Some(new_state);
+                                        rb.set_new_value(new_state);
                                     }
                                 }
                                 "Switch" => {
@@ -873,7 +880,7 @@ impl RelayDevices {
                                     ) {
                                         //switching is toggling current state to the opposite:
                                         new_state = new_state ^ (1 << i as u8);
-                                        rb.new_value = Some(new_state);
+                                        rb.set_new_value(new_state);
                                     }
                                 }
                                 _ => (),
