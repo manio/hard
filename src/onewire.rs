@@ -329,6 +329,10 @@ impl Device {
     }
 }
 
+trait OnOff {
+    fn currently_off(&self, index: Option<usize>) -> bool;
+}
+
 pub struct RelayBoard {
     pub relay: [Option<Device>; 8],
     pub ow_family: u8,
