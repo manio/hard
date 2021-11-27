@@ -827,6 +827,7 @@ impl RelayDevices {
             for i in 0..=7 {
                 let currently_off = rb.currently_off(Some(i));
                 let dest_name = rb.get_dest_name(Some(i));
+                let mut new_state: u8 = rb.get_actual_state();
                 match &mut rb.relay[i] {
                     Some(relay) => {
                         if associated_relays.contains(&relay.id) {
@@ -846,10 +847,6 @@ impl RelayDevices {
                                 );
                                 continue;
                             }
-
-                            let mut new_state: u8 = rb
-                                .new_value
-                                .unwrap_or(rb.last_value.unwrap_or(DS2408_INITIAL_STATE));
 
                             match kind_code.as_ref() {
                                 "PIR_Trigger" => {
