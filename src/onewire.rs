@@ -280,7 +280,7 @@ impl Device {
                         mode,
                     );
             } else {
-                let duration;
+                let mut duration;
                 if (kind == ProlongKind::Remote && !on)
                     || kind == ProlongKind::AutoOff
                     || kind == ProlongKind::DayNight
@@ -301,6 +301,7 @@ impl Device {
                     duration = format!(", duration: <yellow>{}</>", format_duration(d));
                     if kind == ProlongKind::Switch {
                         self.override_mode = true;
+                        duration.push_str(" 🔒");
                     }
                     self.stop_after = Some(d);
                 }
