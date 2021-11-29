@@ -505,7 +505,7 @@ impl OnOff for RelayBoard {
         op: Operation,
         index: Option<usize>,
         _onewire: Option<&OneWire>,
-        dev: &mut Device,
+        _dev: &mut Device,
     ) {
         let mut new_state: u8 = self.get_actual_state();
         match op {
