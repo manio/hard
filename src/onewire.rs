@@ -341,7 +341,7 @@ trait OnOff {
 }
 
 pub struct RelayBoard {
-    pub relay: [Option<Device>; 8],
+    pub relay: [Option<i32>; 8],
     pub ow_family: u8,
     pub ow_address: u64,
     pub new_value: Option<u8>,
@@ -604,6 +604,10 @@ pub struct RelayDevices {
     pub yeelight: Vec<Yeelight>,
 }
 
+pub struct Relays {
+    pub relay: Vec<Device>,
+}
+
 impl SensorDevices {
     pub fn add_sensor(
         &mut self,
@@ -686,6 +690,7 @@ impl SensorDevices {
 impl RelayDevices {
     pub fn add_relay(
         &mut self,
+        relays: &mut Vec<Device>,
         id_relay: i32,
         name: String,
         family_code: Option<i16>,
@@ -742,7 +747,7 @@ impl RelayDevices {
             relay_board.new_value = Some(new_state);
         }
 
-        let old_relay = &relay_board.relay[bit as usize];
+        let old_relay = relays.iter().find(|r| r.id == id_relay);
 
         //create and attach a relay
         let relay = Device {
@@ -810,7 +815,9 @@ impl RelayDevices {
                 }
             },
         };
-        relay_board.relay[bit as usize] = Some(relay);
+        relay_board.relay[bit as usize] = Some(id_relay);
+        relays.retain(|r| r.id != id_relay);
+        relays.push(relay);
     }
 
     pub fn add_yeelight(
@@ -1371,6 +1378,7 @@ pub struct OneWire {
     pub lcd_transmitter: Sender<LcdTask>,
     pub sensor_devices: Arc<RwLock<SensorDevices>>,
     pub relay_devices: Arc<RwLock<RelayDevices>>,
+    pub relays: Arc<RwLock<Relays>>,
 }
 
 impl OneWire {
@@ -1496,6 +1504,7 @@ impl OneWire {
             {
                 let mut sensor_dev = self.sensor_devices.write().unwrap();
                 let mut relay_dev = self.relay_devices.write().unwrap();
+                let mut relays = self.relays.write().unwrap();
 
                 //set a cesspool level size
                 if state_machine.cesspool_level.level.len() < sensor_dev.max_cesspool_level {
@@ -1626,13 +1635,19 @@ impl OneWire {
                                                             if new_value & (1 << i as u8)
                                                                 != old_value & (1 << i as u8)
                                                             {
-                                                                match &mut rb.relay[i] {
-                                                                    Some(relay) => {
-                                                                        relay.last_toggled =
-                                                                            Some(Instant::now());
-                                                                        self.increment_relay_counter(
-                                                                            relay.id,
-                                                                        );
+                                                                match rb.relay[i] {
+                                                                    Some(id) => {
+                                                                        let r = relays
+                                                                            .relay
+                                                                            .iter_mut()
+                                                                            .find(|r| r.id == id);
+                                                                        match r {
+                                                                            Some(relay) => {
+                                                                                relay.last_toggled = Some(Instant::now());
+                                                                                self.increment_relay_counter(id);
+                                                                            }
+                                                                            None => (),
+                                                                        }
                                                                     }
                                                                     _ => {}
                                                                 }
@@ -1735,40 +1750,49 @@ impl OneWire {
 
                             //iteration on all relays and check 'all night' tag
                             for i in 0..=7 {
-                                match &mut rb.relay[i] {
-                                    Some(relay) => {
-                                        let mut relay_marked: bool = false;
-                                        for tag in &relay.tags {
-                                            match tag.as_ref() {
-                                                "all_night" => {
-                                                    relay_marked = true;
+                                match rb.relay[i] {
+                                    Some(id) => {
+                                        let r = relays.relay.iter_mut().find(|r| r.id == id);
+                                        match r {
+                                            Some(relay) => {
+                                                let mut relay_marked: bool = false;
+                                                for tag in &relay.tags {
+                                                    match tag.as_ref() {
+                                                        "all_night" => {
+                                                            relay_marked = true;
+                                                        }
+                                                        _ => {}
+                                                    }
                                                 }
-                                                _ => {}
-                                            }
-                                        }
-                                        if relay_marked {
-                                            if relay.turn_on_prolong(
-                                                ProlongKind::DayNight,
-                                                night,
-                                                format!(
-                                                    "relay:{}|bit:{}",
-                                                    get_w1_device_name(rb.ow_family, rb.ow_address),
-                                                    i
-                                                ),
-                                                night,
-                                                false,
-                                                None,
-                                            ) {
-                                                if night {
-                                                    //turn ON relay
-                                                    new_state = new_state & !(1 << i as u8);
-                                                } else {
-                                                    //turn OFF relay
-                                                    new_state = new_state | (1 << i as u8);
+                                                if relay_marked {
+                                                    if relay.turn_on_prolong(
+                                                        ProlongKind::DayNight,
+                                                        night,
+                                                        format!(
+                                                            "relay:{}|bit:{}",
+                                                            get_w1_device_name(
+                                                                rb.ow_family,
+                                                                rb.ow_address
+                                                            ),
+                                                            i
+                                                        ),
+                                                        night,
+                                                        false,
+                                                        None,
+                                                    ) {
+                                                        if night {
+                                                            //turn ON relay
+                                                            new_state = new_state & !(1 << i as u8);
+                                                        } else {
+                                                            //turn OFF relay
+                                                            new_state = new_state | (1 << i as u8);
+                                                        }
+                                                        rb.new_value = Some(new_state);
+                                                        self.increment_relay_counter(relay.id);
+                                                    }
                                                 }
-                                                rb.new_value = Some(new_state);
-                                                self.increment_relay_counter(relay.id);
                                             }
+                                            None => (),
                                         }
                                     }
                                     _ => {}
@@ -1841,73 +1865,81 @@ impl OneWire {
 
                         //iterate all relays in the board
                         for i in 0..=7 {
-                            match &mut rb.relay[i] {
-                                Some(relay) => {
-                                    let relay_tasks: Vec<OneWireTask> = pending_tasks
-                                        .clone()
-                                        .into_iter()
-                                        .filter(|t| match t.id_relay {
-                                            Some(id) => relay.id == id,
-                                            None => match &t.tag_group {
-                                                Some(tag_name) => relay.tags.contains(tag_name),
-                                                None => false,
-                                            },
-                                        })
-                                        .collect();
-                                    for t in &relay_tasks {
-                                        debug!(
+                            match rb.relay[i] {
+                                Some(id) => {
+                                    let r = relays.relay.iter_mut().find(|r| r.id == id);
+                                    match r {
+                                        Some(relay) => {
+                                            let relay_tasks: Vec<OneWireTask> = pending_tasks
+                                                .clone()
+                                                .into_iter()
+                                                .filter(|t| match t.id_relay {
+                                                    Some(id) => relay.id == id,
+                                                    None => match &t.tag_group {
+                                                        Some(tag_name) => {
+                                                            relay.tags.contains(tag_name)
+                                                        }
+                                                        None => false,
+                                                    },
+                                                })
+                                                .collect();
+                                            for t in &relay_tasks {
+                                                debug!(
                                             "Processing OneWireTask: command={:?}, matched id_relay={}, duration={:?}",
                                             t.command, relay.id, t.duration
                                         );
 
-                                        //check if bit is set (relay is off)
-                                        let currently_off = new_state & (1 << i as u8) != 0;
-                                        match t.command {
-                                            TaskCommand::TurnOnProlong => {
-                                                //turn on or prolong
-                                                if relay.turn_on_prolong(
-                                                    ProlongKind::Remote,
-                                                    night,
-                                                    format!(
-                                                        "relay:{}|bit:{}",
-                                                        get_w1_device_name(
-                                                            rb.ow_family,
-                                                            rb.ow_address
-                                                        ),
-                                                        i
-                                                    ),
-                                                    true,
-                                                    currently_off,
-                                                    t.duration,
-                                                ) {
-                                                    new_state = new_state & !(1 << i as u8);
-                                                    rb.new_value = Some(new_state);
+                                                //check if bit is set (relay is off)
+                                                let currently_off = new_state & (1 << i as u8) != 0;
+                                                match t.command {
+                                                    TaskCommand::TurnOnProlong => {
+                                                        //turn on or prolong
+                                                        if relay.turn_on_prolong(
+                                                            ProlongKind::Remote,
+                                                            night,
+                                                            format!(
+                                                                "relay:{}|bit:{}",
+                                                                get_w1_device_name(
+                                                                    rb.ow_family,
+                                                                    rb.ow_address
+                                                                ),
+                                                                i
+                                                            ),
+                                                            true,
+                                                            currently_off,
+                                                            t.duration,
+                                                        ) {
+                                                            new_state = new_state & !(1 << i as u8);
+                                                            rb.new_value = Some(new_state);
+                                                        }
+                                                    }
+                                                    TaskCommand::TurnOff => {
+                                                        if relay.turn_on_prolong(
+                                                            ProlongKind::Remote,
+                                                            night,
+                                                            format!(
+                                                                "relay:{}|bit:{}",
+                                                                get_w1_device_name(
+                                                                    rb.ow_family,
+                                                                    rb.ow_address
+                                                                ),
+                                                                i
+                                                            ),
+                                                            false,
+                                                            currently_off,
+                                                            t.duration,
+                                                        ) {
+                                                            //set a bit -> turn off relay
+                                                            new_state = new_state | (1 << i as u8);
+                                                            rb.new_value = Some(new_state);
+                                                            self.increment_relay_counter(relay.id);
+                                                        }
+                                                    }
+                                                    _ => {}
                                                 }
                                             }
-                                            TaskCommand::TurnOff => {
-                                                if relay.turn_on_prolong(
-                                                    ProlongKind::Remote,
-                                                    night,
-                                                    format!(
-                                                        "relay:{}|bit:{}",
-                                                        get_w1_device_name(
-                                                            rb.ow_family,
-                                                            rb.ow_address
-                                                        ),
-                                                        i
-                                                    ),
-                                                    false,
-                                                    currently_off,
-                                                    t.duration,
-                                                ) {
-                                                    //set a bit -> turn off relay
-                                                    new_state = new_state | (1 << i as u8);
-                                                    rb.new_value = Some(new_state);
-                                                    self.increment_relay_counter(relay.id);
-                                                }
-                                            }
-                                            _ => {}
                                         }
+                                        _ => {}
                                     }
                                 }
                                 _ => {}
@@ -1926,35 +1958,44 @@ impl OneWire {
 
                     //iteration on all relays and check elapsed time
                     for i in 0..=7 {
-                        match &mut rb.relay[i] {
-                            Some(relay) => {
-                                match relay.last_toggled {
-                                    Some(toggled) => {
-                                        match relay.stop_after {
-                                            Some(stop_after) => {
-                                                if toggled.elapsed() > stop_after {
-                                                    let currently_off =
-                                                        new_state & (1 << i as u8) != 0;
-                                                    if relay.turn_on_prolong(
-                                                        ProlongKind::AutoOff,
-                                                        night,
-                                                        format!(
-                                                            "relay:{}|bit:{}",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            i
-                                                        ),
-                                                        false,
-                                                        currently_off,
-                                                        None,
-                                                    ) {
-                                                        //set a bit -> turn off relay
-                                                        new_state = new_state | (1 << i as u8);
-                                                        rb.new_value = Some(new_state);
-                                                        self.increment_relay_counter(relay.id);
+                        match rb.relay[i] {
+                            Some(id) => {
+                                let r = relays.relay.iter_mut().find(|r| r.id == id);
+                                match r {
+                                    Some(relay) => {
+                                        match relay.last_toggled {
+                                            Some(toggled) => {
+                                                match relay.stop_after {
+                                                    Some(stop_after) => {
+                                                        if toggled.elapsed() > stop_after {
+                                                            let currently_off =
+                                                                new_state & (1 << i as u8) != 0;
+                                                            if relay.turn_on_prolong(
+                                                                ProlongKind::AutoOff,
+                                                                night,
+                                                                format!(
+                                                                    "relay:{}|bit:{}",
+                                                                    get_w1_device_name(
+                                                                        rb.ow_family,
+                                                                        rb.ow_address
+                                                                    ),
+                                                                    i
+                                                                ),
+                                                                false,
+                                                                currently_off,
+                                                                None,
+                                                            ) {
+                                                                //set a bit -> turn off relay
+                                                                new_state =
+                                                                    new_state | (1 << i as u8);
+                                                                rb.new_value = Some(new_state);
+                                                                self.increment_relay_counter(
+                                                                    relay.id,
+                                                                );
+                                                            }
+                                                        }
                                                     }
+                                                    _ => {}
                                                 }
                                             }
                                             _ => {}

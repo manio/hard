@@ -131,6 +131,7 @@ async fn main() {
         relay_boards: vec![],
         yeelight: vec![],
     };
+    let relays = onewire::Relays { relay: vec![] };
     let env_sensor_devices = onewire_env::EnvSensorDevices {
         kinds: HashMap::new(),
         env_sensors: vec![],
@@ -139,6 +140,7 @@ async fn main() {
     let rfid_pending_tags: Vec<u32> = vec![];
     let onewire_sensor_devices = Arc::new(RwLock::new(sensor_devices));
     let onewire_relay_devices = Arc::new(RwLock::new(relay_devices));
+    let onewire_relays = Arc::new(RwLock::new(relays));
     let onewire_env_sensor_devices = Arc::new(RwLock::new(env_sensor_devices));
     let onewire_rfid_tags = Arc::new(RwLock::new(rfid_tags));
     let onewire_rfid_pending_tags = Arc::new(RwLock::new(rfid_pending_tags));
@@ -169,6 +171,7 @@ async fn main() {
             disable_onewire: get_config_bool("disable_onewire", None),
             sensor_devices: onewire_sensor_devices.clone(),
             relay_devices: onewire_relay_devices.clone(),
+            relays: onewire_relays.clone(),
             env_sensor_devices: onewire_env_sensor_devices.clone(),
             rfid_tags: onewire_rfid_tags.clone(),
             sensor_counters: Default::default(),
@@ -195,6 +198,7 @@ async fn main() {
             lcd_transmitter: lcd_tx.clone(),
             sensor_devices: onewire_sensor_devices.clone(),
             relay_devices: onewire_relay_devices.clone(),
+            relays: onewire_relays.clone(),
         };
         let worker_cancel_flag = cancel_flag.clone();
         let thread_builder = thread::Builder::new().name("onewire".into()); //thread name

@@ -36,6 +36,7 @@ pub struct Database {
     pub disable_onewire: bool,
     pub sensor_devices: Arc<RwLock<onewire::SensorDevices>>,
     pub relay_devices: Arc<RwLock<onewire::RelayDevices>>,
+    pub relays: Arc<RwLock<onewire::Relays>>,
     pub env_sensor_devices: Arc<RwLock<onewire_env::EnvSensorDevices>>,
     pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
     pub sensor_counters: HashMap<i32, u32>,
@@ -85,6 +86,7 @@ impl Database {
                 let mut sensor_dev = self.sensor_devices.write().unwrap();
                 let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
                 let mut relay_dev = self.relay_devices.write().unwrap();
+                let mut relays = self.relays.write().unwrap();
                 let mut rfid_tag = self.rfid_tags.write().unwrap();
 
                 info!("🦏 {}: Loading data from view 'kinds'...", self.name);
@@ -187,6 +189,7 @@ impl Database {
                         id_relay, name, family_code, address, bit, pir_exclude, pir_hold_secs, switch_hold_secs, initial_state, pir_all_day, tags
                     );
                     relay_dev.add_relay(
+                        &mut relays.relay,
                         id_relay,
                         name,
                         family_code,
