@@ -199,7 +199,8 @@ impl Device {
         if (kind == ProlongKind::PIR
             && !(self.override_mode && on
                 || (!self.pir_exclude && on && (night || self.pir_all_day))))
-            || ((kind == ProlongKind::Remote || kind == ProlongKind::AutoOff)
+            || ((kind == ProlongKind::Remote
+                || (kind == ProlongKind::AutoOff && !self.override_mode))
                 && !on
                 && currently_off)
         {
