@@ -334,8 +334,20 @@ impl Device {
                 self.stop_after = Some(toggled_elapsed.add(d));
             }
             info!(
-                "<d>- - -</> ♾️ {:?} prolonged: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>{}",
-                kind, self.name, dest_name, duration,
+                "<d>- - -</> ♾️ {:?} prolonged{}: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>{}",
+                kind,
+                {
+                    if !self.override_mode {
+                        ""
+                    } else if !currently_off {
+                        " 💡"
+                    } else {
+                        " ◼️"
+                    }
+                },
+                self.name,
+                dest_name,
+                duration,
             );
         }
         false
