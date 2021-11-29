@@ -904,6 +904,7 @@ impl RelayDevices {
 
     pub fn relay_sensor_trigger(
         &mut self,
+        relays: &mut Vec<Device>,
         state_machine: &mut StateMachine,
         associated_relays: &Vec<i32>,
         kind_code: &str,
@@ -912,55 +913,22 @@ impl RelayDevices {
     ) {
         for rb in &mut self.relay_boards {
             for i in 0..=7 {
-                let currently_off = rb.currently_off(Some(i));
-                let dest_name = rb.get_dest_name(Some(i));
-                match &mut rb.relay[i] {
-                    Some(relay) => {
-                        if associated_relays.contains(&relay.id) {
-                            //check hook function result and stop processing when needed
-                            let stop_processing = !state_machine.device_hook(
-                                &kind_code,
-                                on,
-                                &relay.tags,
-                                night,
-                                relay.id,
-                            );
-                            if stop_processing {
-                                debug!(
-                                    "{}: {}: stopped processing",
-                                    get_w1_device_name(rb.ow_family, rb.ow_address),
-                                    relay.name,
+                match rb.relay[i] {
+                    Some(id) => {
+                        let r = relays.iter_mut().find(|r| r.id == id);
+                        match r {
+                            Some(relay) => {
+                                rb.sensor_trigger(
+                                    relay,
+                                    Some(i),
+                                    state_machine,
+                                    associated_relays,
+                                    kind_code,
+                                    on,
+                                    night,
                                 );
-                                continue;
                             }
-
-                            match kind_code.as_ref() {
-                                "PIR_Trigger" => {
-                                    if relay.turn_on_prolong(
-                                        ProlongKind::PIR,
-                                        night,
-                                        dest_name,
-                                        on,
-                                        currently_off,
-                                        None,
-                                    ) {
-                                        rb.set_new_value(Operation::On, Some(i), None);
-                                    }
-                                }
-                                "Switch" => {
-                                    if relay.turn_on_prolong(
-                                        ProlongKind::Switch,
-                                        night,
-                                        dest_name,
-                                        on,
-                                        false,
-                                        None,
-                                    ) {
-                                        rb.set_new_value(Operation::Toggle, Some(i), None);
-                                    }
-                                }
-                                _ => (),
-                            }
+                            None => (),
                         }
                     }
                     _ => {}
@@ -1645,6 +1613,7 @@ impl OneWire {
                                                             &sensor.associated_relays;
                                                         if !associated_relays.is_empty() {
                                                             relay_dev.relay_sensor_trigger(
+                                                                &mut relays.relay,
                                                                 &mut state_machine,
                                                                 associated_relays,
                                                                 kind_code,
