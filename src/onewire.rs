@@ -1792,14 +1792,7 @@ impl OneWire {
                                                     if relay.turn_on_prolong(
                                                         ProlongKind::DayNight,
                                                         night,
-                                                        format!(
-                                                            "relay:{}|bit:{}",
-                                                            get_w1_device_name(
-                                                                rb.ow_family,
-                                                                rb.ow_address
-                                                            ),
-                                                            i
-                                                        ),
+                                                        rb.get_dest_name(Some(i)),
                                                         night,
                                                         false,
                                                         None,
@@ -1859,7 +1852,7 @@ impl OneWire {
                                             if dev.turn_on_prolong(
                                                 ProlongKind::Remote,
                                                 night,
-                                                format!("yeelight:{}", yeelight.ip_address),
+                                                yeelight.get_dest_name(None),
                                                 true,
                                                 !yeelight.powered_on,
                                                 t.duration,
@@ -1873,7 +1866,7 @@ impl OneWire {
                                             if dev.turn_on_prolong(
                                                 ProlongKind::Remote,
                                                 night,
-                                                format!("yeelight:{}", yeelight.ip_address),
+                                                yeelight.get_dest_name(None),
                                                 false,
                                                 !yeelight.powered_on,
                                                 t.duration,
@@ -1929,14 +1922,7 @@ impl OneWire {
                                                         if relay.turn_on_prolong(
                                                             ProlongKind::Remote,
                                                             night,
-                                                            format!(
-                                                                "relay:{}|bit:{}",
-                                                                get_w1_device_name(
-                                                                    rb.ow_family,
-                                                                    rb.ow_address
-                                                                ),
-                                                                i
-                                                            ),
+                                                            rb.get_dest_name(Some(i)),
                                                             true,
                                                             currently_off,
                                                             t.duration,
@@ -1949,14 +1935,7 @@ impl OneWire {
                                                         if relay.turn_on_prolong(
                                                             ProlongKind::Remote,
                                                             night,
-                                                            format!(
-                                                                "relay:{}|bit:{}",
-                                                                get_w1_device_name(
-                                                                    rb.ow_family,
-                                                                    rb.ow_address
-                                                                ),
-                                                                i
-                                                            ),
+                                                            rb.get_dest_name(Some(i)),
                                                             false,
                                                             currently_off,
                                                             t.duration,
@@ -2005,14 +1984,7 @@ impl OneWire {
                                                             if relay.turn_on_prolong(
                                                                 ProlongKind::AutoOff,
                                                                 night,
-                                                                format!(
-                                                                    "relay:{}|bit:{}",
-                                                                    get_w1_device_name(
-                                                                        rb.ow_family,
-                                                                        rb.ow_address
-                                                                    ),
-                                                                    i
-                                                                ),
+                                                                rb.get_dest_name(Some(i)),
                                                                 false,
                                                                 currently_off,
                                                                 None,
@@ -2055,7 +2027,7 @@ impl OneWire {
                                         if dev.turn_on_prolong(
                                             ProlongKind::AutoOff,
                                             night,
-                                            format!("yeelight:{}", yeelight.ip_address),
+                                            yeelight.get_dest_name(None),
                                             false,
                                             !yeelight.powered_on,
                                             None,
