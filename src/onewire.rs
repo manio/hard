@@ -349,6 +349,7 @@ trait OnOff {
         device: &mut Device,
         index: Option<usize>,
         state_machine: &mut StateMachine,
+        onewire: Option<&OneWire>,
         associated_devices: &Vec<i32>,
         kind_code: &str,
         on: bool,
@@ -375,7 +376,7 @@ trait OnOff {
                         currently_off,
                         None,
                     ) {
-                        self.set_new_value(Operation::On, index, None, device);
+                        self.set_new_value(Operation::On, index, onewire, device);
                     }
                 }
                 "Switch" => {
@@ -387,7 +388,7 @@ trait OnOff {
                         false,
                         None,
                     ) {
-                        self.set_new_value(Operation::Toggle, index, None, device);
+                        self.set_new_value(Operation::Toggle, index, onewire, device);
                     }
                 }
                 _ => (),
@@ -943,6 +944,7 @@ impl RelayDevices {
                                     relay,
                                     Some(i),
                                     state_machine,
+                                    None,
                                     associated_relays,
                                     kind_code,
                                     on,
