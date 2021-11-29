@@ -313,22 +313,24 @@ impl Device {
             }
         } else {
             let toggled_elapsed = self.last_toggled.unwrap_or(Instant::now()).elapsed();
+            let mut duration = format!(", duration added: <yellow>{}</>", format_duration(d));
             if self.override_mode {
                 if self.switch_hold_secs > d.as_secs_f32()
                     && toggled_elapsed
                         > Duration::from_secs_f32(self.switch_hold_secs - d.as_secs_f32())
                 {
                     self.stop_after = Some(toggled_elapsed.add(d));
+                } else {
+                    duration = "".into();
                 }
+                //mark that we are in override mode
+                duration.push_str(" 🔒");
             } else {
                 self.stop_after = Some(toggled_elapsed.add(d));
             }
             info!(
-                "<d>- - -</> ♾️ {:?} prolonged: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>, duration added: <yellow>{}</>",
-                kind,
-                self.name,
-                dest_name,
-                format_duration(d),
+                "<d>- - -</> ♾️ {:?} prolonged: <b>{}</> <cyan>(</><magenta>{}</><cyan>)</>{}",
+                kind, self.name, dest_name, duration,
             );
         }
         false
