@@ -338,6 +338,56 @@ trait OnOff {
     fn currently_off(&self, index: Option<usize>) -> bool;
     fn get_dest_name(&self, index: Option<usize>) -> String;
     fn set_new_value(&mut self, op: Operation, index: Option<usize>, onewire: Option<&OneWire>);
+    fn sensor_trigger(
+        &mut self,
+        device: &mut Device,
+        index: Option<usize>,
+        state_machine: &mut StateMachine,
+        associated_devices: &Vec<i32>,
+        kind_code: &str,
+        on: bool,
+        night: bool,
+    ) {
+        let currently_off = self.currently_off(index);
+        let dest_name = self.get_dest_name(index);
+        if associated_devices.contains(&device.id) {
+            //check hook function result and stop processing when needed
+            let stop_processing =
+                !state_machine.device_hook(&kind_code, on, &device.tags, night, device.id);
+            if stop_processing {
+                debug!("{}: {}: stopped processing", dest_name, device.name);
+                return;
+            }
+
+            match kind_code.as_ref() {
+                "PIR_Trigger" => {
+                    if device.turn_on_prolong(
+                        ProlongKind::PIR,
+                        night,
+                        dest_name,
+                        on,
+                        currently_off,
+                        None,
+                    ) {
+                        self.set_new_value(Operation::On, index, None);
+                    }
+                }
+                "Switch" => {
+                    if device.turn_on_prolong(
+                        ProlongKind::Switch,
+                        night,
+                        dest_name,
+                        on,
+                        false,
+                        None,
+                    ) {
+                        self.set_new_value(Operation::Toggle, index, None);
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
 }
 
 pub struct RelayBoard {
