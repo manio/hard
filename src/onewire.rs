@@ -285,7 +285,7 @@ impl Device {
                     || kind == ProlongKind::AutoOff
                     || kind == ProlongKind::DayNight
                 {
-                    duration = "".into();
+                    duration = "".to_string();
                     self.stop_after = None;
                     if kind == ProlongKind::AutoOff && currently_off && self.override_mode {
                         info!(
@@ -295,6 +295,10 @@ impl Device {
                         self.last_toggled = None;
                         self.override_mode = false;
                         return false;
+                    }
+                    //mark that we was in override
+                    if self.override_mode {
+                        duration.push_str(" 🔓");
                     }
                     self.override_mode = false;
                 } else {
