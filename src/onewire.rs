@@ -962,6 +962,7 @@ impl RelayDevices {
 
     pub fn yeelight_sensor_trigger(
         &mut self,
+        relays: &mut Vec<Device>,
         state_machine: &mut StateMachine,
         onewire: &OneWire,
         associated_yeelights: &Vec<i32>,
@@ -970,49 +971,21 @@ impl RelayDevices {
         night: bool,
     ) {
         for yeelight in &mut self.yeelight {
-            let currently_off = yeelight.currently_off(None);
-            let dest_name = yeelight.get_dest_name(None);
-            if associated_yeelights.contains(&yeelight.dev.id) {
-                //check hook function result and stop processing when needed
-                let stop_processing = !state_machine.device_hook(
-                    &kind_code,
-                    on,
-                    &yeelight.dev.tags,
-                    night,
-                    yeelight.dev.id,
-                );
-                if stop_processing {
-                    debug!("Yeelight: {}: stopped processing", yeelight.dev.name,);
-                    continue;
+            let d = relays.iter_mut().find(|y| y.id == yeelight.id);
+            match d {
+                Some(dev) => {
+                    yeelight.sensor_trigger(
+                        dev,
+                        None,
+                        state_machine,
+                        Some(onewire),
+                        associated_yeelights,
+                        kind_code,
+                        on,
+                        night,
+                    );
                 }
-
-                match kind_code.as_ref() {
-                    "PIR_Trigger" => {
-                        if yeelight.dev.turn_on_prolong(
-                            ProlongKind::PIR,
-                            night,
-                            dest_name,
-                            on,
-                            currently_off,
-                            None,
-                        ) {
-                            yeelight.set_new_value(Operation::On, None, Some(onewire));
-                        }
-                    }
-                    "Switch" => {
-                        if yeelight.dev.turn_on_prolong(
-                            ProlongKind::Switch,
-                            night,
-                            dest_name,
-                            on,
-                            false,
-                            None,
-                        ) {
-                            yeelight.set_new_value(Operation::Toggle, None, Some(onewire));
-                        }
-                    }
-                    _ => (),
-                }
+                _ => (),
             }
         }
     }
@@ -1650,6 +1623,7 @@ impl OneWire {
                                                             &sensor.associated_yeelights;
                                                         if !associated_yeelights.is_empty() {
                                                             relay_dev.yeelight_sensor_trigger(
+                                                                &mut relays.relay,
                                                                 &mut state_machine,
                                                                 self,
                                                                 associated_yeelights,
