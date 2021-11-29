@@ -337,7 +337,13 @@ impl Device {
 trait OnOff {
     fn currently_off(&self, index: Option<usize>) -> bool;
     fn get_dest_name(&self, index: Option<usize>) -> String;
-    fn set_new_value(&mut self, op: Operation, index: Option<usize>, onewire: Option<&OneWire>);
+    fn set_new_value(
+        &mut self,
+        op: Operation,
+        index: Option<usize>,
+        onewire: Option<&OneWire>,
+        dev: &mut Device,
+    );
     fn sensor_trigger(
         &mut self,
         device: &mut Device,
@@ -369,7 +375,7 @@ trait OnOff {
                         currently_off,
                         None,
                     ) {
-                        self.set_new_value(Operation::On, index, None);
+                        self.set_new_value(Operation::On, index, None, device);
                     }
                 }
                 "Switch" => {
@@ -381,7 +387,7 @@ trait OnOff {
                         false,
                         None,
                     ) {
-                        self.set_new_value(Operation::Toggle, index, None);
+                        self.set_new_value(Operation::Toggle, index, None, device);
                     }
                 }
                 _ => (),
@@ -494,7 +500,13 @@ impl OnOff for RelayBoard {
         )
     }
 
-    fn set_new_value(&mut self, op: Operation, index: Option<usize>, _onewire: Option<&OneWire>) {
+    fn set_new_value(
+        &mut self,
+        op: Operation,
+        index: Option<usize>,
+        _onewire: Option<&OneWire>,
+        dev: &mut Device,
+    ) {
         let mut new_state: u8 = self.get_actual_state();
         match op {
             Operation::On => new_state = new_state & !(1 << index.unwrap() as u8),
@@ -510,7 +522,7 @@ impl OnOff for RelayBoard {
 }
 
 pub struct Yeelight {
-    pub dev: Device,
+    pub id: i32,
     pub ip_address: String,
     pub powered_on: bool,
 }
@@ -613,13 +625,12 @@ impl Yeelight {
         }
     }
 
-    fn turn_on_off(&mut self, turn_on: bool) {
-        let yeelight_name = self.dev.name.clone();
+    fn turn_on_off(&mut self, turn_on: bool, dev: &Device) {
+        let yeelight_name = dev.name.clone();
         let ip_address = self.ip_address.clone();
         thread::spawn(move || Yeelight::yeelight_tcp_command(yeelight_name, ip_address, turn_on));
 
         self.powered_on = turn_on;
-        self.dev.last_toggled = Some(Instant::now());
     }
 }
 
@@ -632,14 +643,21 @@ impl OnOff for Yeelight {
         format!("yeelight:{}", self.ip_address)
     }
 
-    fn set_new_value(&mut self, op: Operation, _index: Option<usize>, onewire: Option<&OneWire>) {
+    fn set_new_value(
+        &mut self,
+        op: Operation,
+        _index: Option<usize>,
+        onewire: Option<&OneWire>,
+        dev: &mut Device,
+    ) {
         let new_state = match op {
             Operation::On => true,
             Operation::Off => false,
             Operation::Toggle => !self.powered_on,
         };
-        self.turn_on_off(new_state);
-        onewire.unwrap().increment_yeelight_counter(self.dev.id);
+        self.turn_on_off(new_state, dev);
+        dev.last_toggled = Some(Instant::now());
+        onewire.unwrap().increment_yeelight_counter(self.id);
     }
 }
 
@@ -872,6 +890,7 @@ impl RelayDevices {
 
     pub fn add_yeelight(
         &mut self,
+        relays: &mut Vec<Device>,
         id_yeelight: i32,
         name: String,
         ip_address: String,
@@ -895,11 +914,13 @@ impl RelayDevices {
             stop_after: None,
         };
         let light = Yeelight {
-            dev,
+            id: id_yeelight,
             ip_address,
             powered_on: false,
         };
         self.yeelight.push(light);
+        relays.retain(|r| r.id != id_yeelight);
+        relays.push(dev);
     }
 
     pub fn relay_sensor_trigger(
@@ -1831,50 +1852,58 @@ impl OneWire {
                 if !pending_tasks.is_empty() {
                     //Yeelights
                     for yeelight in &mut relay_dev.yeelight {
-                        let relay_tasks: Vec<OneWireTask> = pending_tasks
-                            .clone()
-                            .into_iter()
-                            .filter(|t| match t.id_yeelight {
-                                Some(id) => yeelight.dev.id == id,
-                                None => match &t.tag_group {
-                                    Some(tag_name) => yeelight.dev.tags.contains(tag_name),
-                                    None => false,
-                                },
-                            })
-                            .collect();
-                        for t in &relay_tasks {
-                            debug!("Processing OneWireTask: command={:?}, matched id_yeelight={}, duration={:?}", t.command, yeelight.dev.id, t.duration);
+                        let d = relays.relay.iter_mut().find(|y| y.id == yeelight.id);
+                        match d {
+                            Some(dev) => {
+                                let relay_tasks: Vec<OneWireTask> = pending_tasks
+                                    .clone()
+                                    .into_iter()
+                                    .filter(|t| match t.id_yeelight {
+                                        Some(id) => dev.id == id,
+                                        None => match &t.tag_group {
+                                            Some(tag_name) => dev.tags.contains(tag_name),
+                                            None => false,
+                                        },
+                                    })
+                                    .collect();
+                                for t in &relay_tasks {
+                                    debug!("Processing OneWireTask: command={:?}, matched id_yeelight={}, duration={:?}", t.command, dev.id, t.duration);
 
-                            match t.command {
-                                TaskCommand::TurnOnProlong => {
-                                    //turn on or prolong
-                                    if yeelight.dev.turn_on_prolong(
-                                        ProlongKind::Remote,
-                                        night,
-                                        format!("yeelight:{}", yeelight.ip_address),
-                                        true,
-                                        !yeelight.powered_on,
-                                        t.duration,
-                                    ) {
-                                        yeelight.turn_on_off(true);
-                                        self.increment_yeelight_counter(yeelight.dev.id);
+                                    match t.command {
+                                        TaskCommand::TurnOnProlong => {
+                                            //turn on or prolong
+                                            if dev.turn_on_prolong(
+                                                ProlongKind::Remote,
+                                                night,
+                                                format!("yeelight:{}", yeelight.ip_address),
+                                                true,
+                                                !yeelight.powered_on,
+                                                t.duration,
+                                            ) {
+                                                yeelight.turn_on_off(true, &dev);
+                                                dev.last_toggled = Some(Instant::now());
+                                                self.increment_yeelight_counter(dev.id);
+                                            }
+                                        }
+                                        TaskCommand::TurnOff => {
+                                            if dev.turn_on_prolong(
+                                                ProlongKind::Remote,
+                                                night,
+                                                format!("yeelight:{}", yeelight.ip_address),
+                                                false,
+                                                !yeelight.powered_on,
+                                                t.duration,
+                                            ) {
+                                                yeelight.turn_on_off(false, &dev);
+                                                dev.last_toggled = Some(Instant::now());
+                                                self.increment_yeelight_counter(dev.id);
+                                            }
+                                        }
+                                        _ => {}
                                     }
                                 }
-                                TaskCommand::TurnOff => {
-                                    if yeelight.dev.turn_on_prolong(
-                                        ProlongKind::Remote,
-                                        night,
-                                        format!("yeelight:{}", yeelight.ip_address),
-                                        false,
-                                        !yeelight.powered_on,
-                                        t.duration,
-                                    ) {
-                                        yeelight.turn_on_off(false);
-                                        self.increment_yeelight_counter(yeelight.dev.id);
-                                    }
-                                }
-                                _ => {}
                             }
+                            _ => (),
                         }
                     }
 
@@ -2033,26 +2062,31 @@ impl OneWire {
 
                 //checking for auto turn-off of necessary yeelights
                 for yeelight in &mut relay_dev.yeelight {
-                    match yeelight.dev.last_toggled {
-                        Some(toggled) => match yeelight.dev.stop_after {
-                            Some(stop_after) => {
-                                if toggled.elapsed() > stop_after {
-                                    if yeelight.dev.turn_on_prolong(
-                                        ProlongKind::AutoOff,
-                                        night,
-                                        format!("yeelight:{}", yeelight.ip_address),
-                                        false,
-                                        !yeelight.powered_on,
-                                        None,
-                                    ) {
-                                        yeelight.turn_on_off(false);
-                                        self.increment_yeelight_counter(yeelight.dev.id);
+                    let d = relays.relay.iter_mut().find(|y| y.id == yeelight.id);
+                    match d {
+                        Some(dev) => match dev.last_toggled {
+                            Some(toggled) => match dev.stop_after {
+                                Some(stop_after) => {
+                                    if toggled.elapsed() > stop_after {
+                                        if dev.turn_on_prolong(
+                                            ProlongKind::AutoOff,
+                                            night,
+                                            format!("yeelight:{}", yeelight.ip_address),
+                                            false,
+                                            !yeelight.powered_on,
+                                            None,
+                                        ) {
+                                            yeelight.turn_on_off(false, &dev);
+                                            dev.last_toggled = Some(Instant::now());
+                                            self.increment_yeelight_counter(yeelight.id);
+                                        }
                                     }
                                 }
-                            }
+                                _ => {}
+                            },
                             _ => {}
                         },
-                        _ => {}
+                        _ => (),
                     }
                 }
             }

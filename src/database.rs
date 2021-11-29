@@ -220,6 +220,7 @@ impl Database {
                         id_yeelight, name, ip_address, pir_exclude, pir_hold_secs, switch_hold_secs, pir_all_day, tags
                     );
                     relay_dev.add_yeelight(
+                        &mut relays.relay,
                         id_yeelight,
                         name,
                         ip_address,
