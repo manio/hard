@@ -236,7 +236,13 @@ impl Device {
 
         //visual
         let mode = match kind {
-            ProlongKind::Switch => "🔲 Switch toggle".to_string(),
+            ProlongKind::Switch => format!("🔲 Switch toggle {}", {
+                if currently_off {
+                    "💡"
+                } else {
+                    "◼️"
+                }
+            }),
             ProlongKind::Remote => format!("🧩 Remote turn-{}", {
                 if on {
                     "on"
@@ -405,7 +411,7 @@ trait OnOff {
                         night,
                         dest_name,
                         on,
-                        false,
+                        currently_off,
                         None,
                     ) {
                         self.set_new_value(Operation::Toggle, index, onewire, device);
