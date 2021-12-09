@@ -1415,6 +1415,7 @@ impl Sun2000 {
                 }
                 Err(e) => {
                     error!("{}", e);
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             }
         }
