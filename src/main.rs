@@ -107,7 +107,7 @@ async fn main() {
     env::set_var("RUST_BACKTRACE", "full");
     let started = Instant::now();
     logging_init();
-    info!("🛡 Welcome to hard (home automation rust-daemon)");
+    info!("🛡️ Welcome to hard (home automation rust-daemon)");
 
     //Ctrl-C / SIGTERM support
     let running = Arc::new(AtomicBool::new(true));

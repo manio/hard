@@ -1115,7 +1115,7 @@ impl StateMachine {
                     }
                     "bedroom_disable" => {
                         if self.bedroom_mode {
-                            info!("{}: bedroom mode disabled 🛏", self.name);
+                            info!("{}: bedroom mode disabled 🛏️", self.name);
                             self.bedroom_mode = false;
                         }
                     }
@@ -1251,7 +1251,7 @@ impl StateMachine {
                             self.cesspool_level.level[index - 1] = Some(sensor_on);
                             if self.cesspool_level.got_all_sensors() {
                                 info!(
-                                    "{}: 🛢 cesspool level: {} {}%",
+                                    "{}: 🛢️ cesspool level: {} {}%",
                                     self.name,
                                     self.cesspool_level,
                                     self.cesspool_level.get_level_percentage()
@@ -1347,7 +1347,7 @@ impl StateMachine {
                                                 self.wicket_gate_relays =
                                                     rfid_tag.associated_relays.clone();
                                                 info!(
-                                                    "{}: ⏹ enabling wicket gate mode for {:?}",
+                                                    "{}: ⏹️ enabling wicket gate mode for {:?}",
                                                     self.name, delay
                                                 );
 

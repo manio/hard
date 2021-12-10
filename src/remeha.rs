@@ -108,7 +108,7 @@ impl SampleData {
         match code {
             0 => "Standby",
             1 => "Boiler start",
-            2 => "Burner start 🕯",
+            2 => "Burner start 🕯️",
             3 => "Burning CH 🔥",
             4 => "Burning DHW 🔥",
             5 => "Burner stop",
@@ -518,7 +518,7 @@ impl Remeha {
                         Ok(_) => {
                             self.poll_ok = self.poll_ok + 1;
                             debug!(
-                                "{}: got reply [⏱ {} ms]: {:02X?}, ok: {}, errors: {}",
+                                "{}: got reply [⏱️ {} ms]: {:02X?}, ok: {}, errors: {}",
                                 self.name,
                                 (elapsed.as_secs() * 1_000)
                                     + (elapsed.subsec_nanos() / 1_000_000) as u64,

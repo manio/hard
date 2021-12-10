@@ -105,7 +105,7 @@ impl Rfid {
                                             match tag_id.parse::<u32>() {
                                                 Ok(tag) => {
                                                     info!(
-                                                        "{}: 🏷 got complete tag ID: {}",
+                                                        "{}: 🏷️ got complete tag ID: {}",
                                                         self.name, tag
                                                     );
 

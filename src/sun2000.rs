@@ -1125,7 +1125,7 @@ impl Sun2000 {
         let elapsed = now.elapsed();
         let ms = (elapsed.as_secs() * 1_000) + (elapsed.subsec_nanos() / 1_000_000) as u64;
         debug!(
-            "{}: read {} parameters [⏱ {} ms]",
+            "{}: read {} parameters [⏱️ {} ms]",
             self.name,
             params.len(),
             ms
