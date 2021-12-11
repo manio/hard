@@ -254,16 +254,16 @@ impl SampleData {
         }
     }
 
-    async fn save_to_influxdb(&self, influxdb_url: &String, thread_name: &String) -> Result<()> {
+    async fn save_to_influxdb(&self, influxdb_url: &String, display_name: &String) -> Result<()> {
         // connect to influxdb
         let client = Client::new(influxdb_url, "remeha");
 
         match client.query(&self.clone().into_query("sample_data")).await {
             Ok(msg) => {
-                debug!("{}: influxdb write success: {:?}", thread_name, msg);
+                debug!("{} influxdb write success: {:?}", display_name, msg);
             }
             Err(e) => {
-                error!("{}: influxdb write error: {:?}", thread_name, e);
+                error!("{} influxdb write error: {:?}", display_name, e);
             }
         }
 
@@ -340,7 +340,7 @@ pub struct RemehaState {
 impl RemehaState {
     fn set_new_status(
         &mut self,
-        thread_name: &String,
+        display_name: &String,
         status_code: u8,
         substatus_code: u8,
         failure_code: u8,
@@ -349,8 +349,8 @@ impl RemehaState {
         let mut failure = false;
         if self.status_code != status_code {
             info!(
-                "{}: Status changed from {}: {} to {}: {}",
-                thread_name,
+                "{} Status changed from {}: {} to {}: {}",
+                display_name,
                 self.status_code,
                 SampleData::get_status_code_description(self.status_code),
                 status_code,
@@ -360,8 +360,8 @@ impl RemehaState {
         }
         if self.substatus_code != substatus_code {
             info!(
-                "{}: Substatus changed from {}: {} to {}: {}",
-                thread_name,
+                "{} Substatus changed from {}: {} to {}: {}",
+                display_name,
                 self.substatus_code,
                 SampleData::get_substatus_code_description(self.substatus_code),
                 substatus_code,
@@ -371,8 +371,8 @@ impl RemehaState {
         }
         if self.failure_code != failure_code {
             info!(
-                "{}: Failure/Locking changed from {}: {} to {}: {}",
-                thread_name,
+                "{} Failure/Locking changed from {}: {} to {}: {}",
+                display_name,
                 self.failure_code,
                 SampleData::get_failure_code_description(self.failure_code),
                 failure_code,
@@ -383,8 +383,8 @@ impl RemehaState {
         }
         if self.error_code != error_code {
             info!(
-                "{}: Error/Blocking changed from {}: {} to {}: {}",
-                thread_name,
+                "{} Error/Blocking changed from {}: {} to {}: {}",
+                display_name,
                 self.error_code,
                 SampleData::get_error_code_description(self.error_code),
                 error_code,
@@ -396,28 +396,28 @@ impl RemehaState {
         failure
     }
 
-    fn show_status(&self, thread_name: &String) {
+    fn show_status(&self, display_name: &String) {
         info!(
-            "{}: Status {}: {}",
-            thread_name,
+            "{} Status {}: {}",
+            display_name,
             self.status_code,
             SampleData::get_status_code_description(self.status_code),
         );
         info!(
-            "{}: Substatus: {}: {}",
-            thread_name,
+            "{} Substatus: {}: {}",
+            display_name,
             self.substatus_code,
             SampleData::get_substatus_code_description(self.substatus_code),
         );
         info!(
-            "{}: Failure/Locking: {}: {}",
-            thread_name,
+            "{} Failure/Locking: {}: {}",
+            display_name,
             self.failure_code,
             SampleData::get_failure_code_description(self.failure_code),
         );
         info!(
-            "{}: Error/Blocking: {}: {}",
-            thread_name,
+            "{} Error/Blocking: {}: {}",
+            display_name,
             self.error_code,
             SampleData::get_error_code_description(self.error_code),
         );
@@ -425,7 +425,7 @@ impl RemehaState {
 }
 
 pub struct Remeha {
-    pub name: String,
+    pub display_name: String,
     pub device_path: String,
     pub poll_ok: u64,
     pub poll_errors: u64,
@@ -500,11 +500,11 @@ impl Remeha {
         output_cmd.push(FRAME_END);
 
         debug!(
-            "{}: sending function_code={:04x} data={:04x} crc=0x{:04X} frame={:02X?}",
-            self.name, function_code, data, crc, output_cmd
+            "{} sending function_code={:04x} data={:04x} crc=0x{:04X} frame={:02X?}",
+            self.display_name, function_code, data, crc, output_cmd
         );
         if let Err(e) = device.write_all(&output_cmd).await {
-            error!("{}: write error: {:?}", self.name, e);
+            error!("{} write error: {:?}", self.display_name, e);
             return Ok((out, device));
         }
         let now = Instant::now();
@@ -518,8 +518,8 @@ impl Remeha {
                         Ok(_) => {
                             self.poll_ok = self.poll_ok + 1;
                             debug!(
-                                "{}: got reply [⏱️ {} ms]: {:02X?}, ok: {}, errors: {}",
-                                self.name,
+                                "{} got reply [⏱️ {} ms]: {:02X?}, ok: {}, errors: {}",
+                                self.display_name,
                                 (elapsed.as_secs() * 1_000)
                                     + (elapsed.subsec_nanos() / 1_000_000) as u64,
                                 &buffer,
@@ -530,16 +530,16 @@ impl Remeha {
                         }
                         Err(e) => {
                             self.poll_errors = self.poll_errors + 1;
-                            error!("{}: data verify failed: {}", self.name, e);
+                            error!("{} data verify failed: {}", self.display_name, e);
                         }
                     }
                 }
                 Err(e) => {
-                    error!("{}: file read error: {}", self.name, e);
+                    error!("{} file read error: {}", self.display_name, e);
                 }
             },
             Err(e) => {
-                error!("{}: response timeout: {}", self.name, e);
+                error!("{} response timeout: {}", self.display_name, e);
             }
         }
 
@@ -566,7 +566,7 @@ impl Remeha {
     }
 
     pub async fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
-        info!("{}: Starting task", self.name);
+        info!("{} Starting task", self.display_name);
         let mut poll_interval = Instant::now();
         let mut stats_interval = Instant::now();
         let mut terminated = false;
@@ -581,15 +581,18 @@ impl Remeha {
             let device_path = match self.get_device_path() {
                 Ok(path) => path,
                 Err(e) => {
-                    error!("{}: unable to obtain device path: {:?}", self.name, e);
+                    error!(
+                        "{} unable to obtain device path: {:?}",
+                        self.display_name, e
+                    );
                     tokio::time::sleep(Duration::from_secs(10)).await;
                     continue;
                 }
             };
 
             info!(
-                "{}: opening device: {:?}, obtained from physical path: {:?}",
-                self.name, device_path, self.device_path
+                "{} opening device: {:?}, obtained from physical path: {:?}",
+                self.display_name, device_path, self.device_path
             );
             let mut options = OpenOptions::new();
             let future = options.read(true).write(true).open(&device_path);
@@ -598,14 +601,17 @@ impl Remeha {
                     match res {
                         Ok(f) => {
                             info!(
-                                "{}: device opened, poll interval: {}s",
-                                self.name, REMEHA_POLL_INTERVAL_SECS
+                                "{} device opened, poll interval: {}s",
+                                self.display_name, REMEHA_POLL_INTERVAL_SECS
                             );
 
                             //call cfmakeraw on a fd termios struct
                             //to enable raw mode
                             if let Err(e) = Remeha::setup_fd(f.as_raw_fd()) {
-                                error!("{}: error calling cfmakeraw() on fd: {:?}", self.name, e);
+                                error!(
+                                    "{} error calling cfmakeraw() on fd: {:?}",
+                                    self.display_name, e
+                                );
                                 tokio::time::sleep(Duration::from_secs(10)).await;
                                 continue;
                             }
@@ -613,14 +619,17 @@ impl Remeha {
                             //create a AsyncFd object on file
                             match AsyncFile::new(f) {
                                 Err(e) => {
-                                    error!("{}: error creating AsyncFd: {:?}", self.name, e);
+                                    error!("{} error creating AsyncFd: {:?}", self.display_name, e);
                                     tokio::time::sleep(Duration::from_secs(10)).await;
                                     continue;
                                 }
                                 Ok(mut file) => {
                                     loop {
                                         if worker_cancel_flag.load(Ordering::SeqCst) {
-                                            debug!("{}: Got terminate signal from main", self.name);
+                                            debug!(
+                                                "{} Got terminate signal from main",
+                                                self.display_name
+                                            );
                                             terminated = true;
                                         }
 
@@ -632,9 +641,9 @@ impl Remeha {
                                         {
                                             stats_interval = Instant::now();
                                             info!(
-                                        "{}: 📊 boiler query statistics: ok: {}, errors: {}",
-                                        self.name, self.poll_ok, self.poll_errors
-                                    );
+                                                "{} 📊 boiler query statistics: ok: {}, errors: {}",
+                                                self.display_name, self.poll_ok, self.poll_errors
+                                            );
 
                                             if terminated {
                                                 break;
@@ -657,7 +666,7 @@ impl Remeha {
 
                                                     //parse data
                                                     let sample = SampleData::new(data);
-                                                    debug!("{}: {}", self.name, sample);
+                                                    debug!("{} {}", self.display_name, sample);
 
                                                     //write data to influxdb if configured
                                                     match &self.influxdb_url {
@@ -665,7 +674,10 @@ impl Remeha {
                                                             // By calling compat on the async function, everything inside it is able
                                                             // to use Tokio 0.2 features.
                                                             let _ = sample
-                                                                .save_to_influxdb(url, &self.name)
+                                                                .save_to_influxdb(
+                                                                    url,
+                                                                    &self.display_name,
+                                                                )
                                                                 .compat()
                                                                 .await;
                                                         }
@@ -675,7 +687,7 @@ impl Remeha {
                                                     remeha_state = Some(match remeha_state {
                                                         Some(mut current_state) => {
                                                             if current_state.set_new_status(
-                                                                &self.name,
+                                                                &self.display_name,
                                                                 sample.status_code,
                                                                 sample.substatus_code,
                                                                 sample.failure_code,
@@ -741,7 +753,8 @@ impl Remeha {
                                                                 failure_code: sample.failure_code,
                                                                 error_code: sample.error_code,
                                                             };
-                                                            new_state.show_status(&self.name);
+                                                            new_state
+                                                                .show_status(&self.display_name);
                                                             new_state
                                                         }
                                                     });
@@ -758,20 +771,20 @@ impl Remeha {
                             }
                         }
                         Err(e) => {
-                            error!("{}: error opening device: {:?}", self.name, e);
+                            error!("{} error opening device: {:?}", self.display_name, e);
                             tokio::time::sleep(Duration::from_secs(10)).await;
                             continue;
                         }
                     }
                 }
                 Err(e) => {
-                    error!("{}: file open timeout: {}", self.name, e);
+                    error!("{} file open timeout: {}", self.display_name, e);
                 }
             }
             tokio::time::sleep(Duration::from_millis(30)).await;
         }
 
-        info!("{}: task stopped", self.name);
+        info!("{} task stopped", self.display_name);
         Ok(())
     }
 }

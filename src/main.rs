@@ -331,7 +331,7 @@ async fn main() {
         Some(path) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut remeha = remeha::Remeha {
-                name: "remeha".to_string(),
+                display_name: "<i><black>remeha:</>".to_string(),
                 device_path: path,
                 poll_ok: 0,
                 poll_errors: 0,
