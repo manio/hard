@@ -277,25 +277,25 @@ impl fmt::Display for SampleData {
         write!(f, "----------------------------------------------------\n")?;
         write!(
             f,
-            "Status: {}: {:?}\n",
+            "Status: {}: {}\n",
             self.status_code,
             SampleData::get_status_code_description(self.status_code)
         )?;
         write!(
             f,
-            "Substatus: {}: {:?}\n",
+            "Substatus: {}: {}\n",
             self.substatus_code,
             SampleData::get_substatus_code_description(self.substatus_code)
         )?;
         write!(
             f,
-            "Failure/Locking: {}: {:?}\n",
+            "Failure/Locking: {}: {}\n",
             self.failure_code,
             SampleData::get_failure_code_description(self.failure_code)
         )?;
         write!(
             f,
-            "Error/Blocking: {}: {:?}\n",
+            "Error/Blocking: {}: {}\n",
             self.error_code,
             SampleData::get_error_code_description(self.error_code)
         )?;
@@ -349,7 +349,7 @@ impl RemehaState {
         let mut failure = false;
         if self.status_code != status_code {
             info!(
-                "{}: Status changed from {}: {:?} to {}: {:?}",
+                "{}: Status changed from {}: {} to {}: {}",
                 thread_name,
                 self.status_code,
                 SampleData::get_status_code_description(self.status_code),
@@ -360,7 +360,7 @@ impl RemehaState {
         }
         if self.substatus_code != substatus_code {
             info!(
-                "{}: Substatus changed from {}: {:?} to {}: {:?}",
+                "{}: Substatus changed from {}: {} to {}: {}",
                 thread_name,
                 self.substatus_code,
                 SampleData::get_substatus_code_description(self.substatus_code),
@@ -371,7 +371,7 @@ impl RemehaState {
         }
         if self.failure_code != failure_code {
             info!(
-                "{}: Failure/Locking changed from {}: {:?} to {}: {:?}",
+                "{}: Failure/Locking changed from {}: {} to {}: {}",
                 thread_name,
                 self.failure_code,
                 SampleData::get_failure_code_description(self.failure_code),
@@ -383,7 +383,7 @@ impl RemehaState {
         }
         if self.error_code != error_code {
             info!(
-                "{}: Error/Blocking changed from {}: {:?} to {}: {:?}",
+                "{}: Error/Blocking changed from {}: {} to {}: {}",
                 thread_name,
                 self.error_code,
                 SampleData::get_error_code_description(self.error_code),
@@ -398,25 +398,25 @@ impl RemehaState {
 
     fn show_status(&self, thread_name: &String) {
         info!(
-            "{}: Status {}: {:?}",
+            "{}: Status {}: {}",
             thread_name,
             self.status_code,
             SampleData::get_status_code_description(self.status_code),
         );
         info!(
-            "{}: Substatus: {}: {:?}",
+            "{}: Substatus: {}: {}",
             thread_name,
             self.substatus_code,
             SampleData::get_substatus_code_description(self.substatus_code),
         );
         info!(
-            "{}: Failure/Locking: {}: {:?}",
+            "{}: Failure/Locking: {}: {}",
             thread_name,
             self.failure_code,
             SampleData::get_failure_code_description(self.failure_code),
         );
         info!(
-            "{}: Error/Blocking: {}: {:?}",
+            "{}: Error/Blocking: {}: {}",
             thread_name,
             self.error_code,
             SampleData::get_error_code_description(self.error_code),
@@ -699,7 +699,7 @@ impl Remeha {
                                                                                     if sample.failure_code
                                                                                 != 255
                                                                             {
-                                                                                format!("\nFailure/Locking: {}: {:?}",
+                                                                                format!("\nFailure/Locking: {}: {}",
                                                                                         sample.failure_code,
                                                                                         SampleData::get_failure_code_description(sample.failure_code),
                                                                                 )
@@ -712,7 +712,7 @@ impl Remeha {
                                                                                         .error_code
                                                                                         != 255
                                                                                     {
-                                                                                        format!("\nError/Blocking: {}: {:?}",
+                                                                                        format!("\nError/Blocking: {}: {}",
                                                                                         sample.error_code,
                                                                                         SampleData::get_error_code_description(sample.error_code),
                                                                                 )
