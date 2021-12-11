@@ -349,7 +349,7 @@ impl RemehaState {
         let mut failure = false;
         if self.status_code != status_code {
             info!(
-                "{} Status changed from {}: {} to {}: {}",
+                "{} Status changed from <blue>{}:</><i>{}</> to <blue>{}:</><i>{}</>",
                 display_name,
                 self.status_code,
                 SampleData::get_status_code_description(self.status_code),
@@ -360,7 +360,7 @@ impl RemehaState {
         }
         if self.substatus_code != substatus_code {
             info!(
-                "{} Substatus changed from {}: {} to {}: {}",
+                "{} Substatus changed from <blue>{}:</><i>{}</> to <blue>{}:</><i>{}</>",
                 display_name,
                 self.substatus_code,
                 SampleData::get_substatus_code_description(self.substatus_code),
@@ -371,7 +371,7 @@ impl RemehaState {
         }
         if self.failure_code != failure_code {
             info!(
-                "{} Failure/Locking changed from {}: {} to {}: {}",
+                "{} Failure/Locking changed from <blue>{}:</><i>{}</> to <blue>{}:</><i>{}</>",
                 display_name,
                 self.failure_code,
                 SampleData::get_failure_code_description(self.failure_code),
@@ -383,7 +383,7 @@ impl RemehaState {
         }
         if self.error_code != error_code {
             info!(
-                "{} Error/Blocking changed from {}: {} to {}: {}",
+                "{} Error/Blocking changed from <blue>{}:</><i>{}</> to <blue>{}:</><i>{}</>",
                 display_name,
                 self.error_code,
                 SampleData::get_error_code_description(self.error_code),
@@ -398,25 +398,25 @@ impl RemehaState {
 
     fn show_status(&self, display_name: &String) {
         info!(
-            "{} Status {}: {}",
+            "{} Status <blue>{}:</><i>{}</>",
             display_name,
             self.status_code,
             SampleData::get_status_code_description(self.status_code),
         );
         info!(
-            "{} Substatus: {}: {}",
+            "{} Substatus: <blue>{}:</><i>{}</>",
             display_name,
             self.substatus_code,
             SampleData::get_substatus_code_description(self.substatus_code),
         );
         info!(
-            "{} Failure/Locking: {}: {}",
+            "{} Failure/Locking: <blue>{}:</><i>{}</>",
             display_name,
             self.failure_code,
             SampleData::get_failure_code_description(self.failure_code),
         );
         info!(
-            "{} Error/Blocking: {}: {}",
+            "{} Error/Blocking: <blue>{}:</><i>{}</>",
             display_name,
             self.error_code,
             SampleData::get_error_code_description(self.error_code),
