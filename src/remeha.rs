@@ -348,49 +348,41 @@ impl RemehaState {
     ) -> bool {
         let mut failure = false;
         if self.status_code != status_code {
+            self.status_code = status_code;
             info!(
-                "{} Status changed from <blue>{}:</><i>{}</> to <blue>{}:</><i>{}</>",
+                "{} Status: <blue>{}:</><i>{}</>",
                 display_name,
                 self.status_code,
                 SampleData::get_status_code_description(self.status_code),
-                status_code,
-                SampleData::get_status_code_description(status_code),
             );
-            self.status_code = status_code;
         }
         if self.substatus_code != substatus_code {
+            self.substatus_code = substatus_code;
             info!(
-                "{} Substatus changed from <blue>{}:</><i>{}</> to <blue>{}:</><i>{}</>",
+                "{} Substatus: <blue>{}:</><i>{}</>",
                 display_name,
                 self.substatus_code,
                 SampleData::get_substatus_code_description(self.substatus_code),
-                substatus_code,
-                SampleData::get_substatus_code_description(substatus_code),
             );
-            self.substatus_code = substatus_code;
         }
         if self.failure_code != failure_code {
+            self.failure_code = failure_code;
             info!(
-                "{} Failure/Locking changed from <blue>{}:</><i>{}</> to <blue>{}:</><i>{}</>",
+                "{} Failure/Locking: <blue>{}:</><i>{}</>",
                 display_name,
                 self.failure_code,
                 SampleData::get_failure_code_description(self.failure_code),
-                failure_code,
-                SampleData::get_failure_code_description(failure_code),
             );
-            self.failure_code = failure_code;
             failure = true;
         }
         if self.error_code != error_code {
+            self.error_code = error_code;
             info!(
-                "{} Error/Blocking changed from <blue>{}:</><i>{}</> to <blue>{}:</><i>{}</>",
+                "{} Error/Blocking: <blue>{}:</><i>{}</>",
                 display_name,
                 self.error_code,
                 SampleData::get_error_code_description(self.error_code),
-                error_code,
-                SampleData::get_error_code_description(error_code),
             );
-            self.error_code = error_code;
             failure = true;
         }
         failure
@@ -398,7 +390,7 @@ impl RemehaState {
 
     fn show_status(&self, display_name: &String) {
         info!(
-            "{} Status <blue>{}:</><i>{}</>",
+            "{} Status: <blue>{}:</><i>{}</>",
             display_name,
             self.status_code,
             SampleData::get_status_code_description(self.status_code),
