@@ -547,7 +547,7 @@ impl Sun2000State {
             275 => ("NTS-MV800", "Spain"),
             _ => ("unknown", "unknown"),
         };
-        format!("standard: {:?}, country: {:?}", grid_code.0, grid_code.1)
+        format!("standard: <b><cyan>{}</>, country: <b><cyan>{}</>", grid_code.0, grid_code.1)
     }
 
     #[rustfmt::skip]
