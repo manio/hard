@@ -106,13 +106,13 @@ impl SampleData {
 
     fn get_status_code_description(code: u8) -> &'static str {
         match code {
-            0 => "Standby",
+            0 => "Standby 💤",
             1 => "Boiler start",
             2 => "Burner start 🕯️",
             3 => "Burning CH 🔥 ◾ central heating 🛖",
             4 => "Burning DHW 🔥 ◾ domestic hot water 🚰",
             5 => "Burner stop",
-            6 => "Boiler stop",
+            6 => "Boiler stop 🎯",
             8 => "Controlled stop",
             9 => "Blocking mode",
             10 => "Locking mode",
