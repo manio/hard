@@ -39,13 +39,13 @@ pub struct Lcdproc {
 impl Lcdproc {
     fn send_command(mut stream: &TcpStream, command: &str) -> std::io::Result<bool> {
         stream.write(format!("{}\n", command).as_ref())?;
-        let mut result = Lcdproc::read_result(stream)?;
+        let mut result = Lcdproc::read_result(stream, false)?;
         if command == "hello" && result.starts_with("connect ") {
             info!("{}", result);
             return Ok(true);
         } else if result.starts_with("listen ") || result.starts_with("ignore ") {
             //we've got listen/ignore instead of success ... try read result again
-            result = Lcdproc::read_result(stream)?;
+            result = Lcdproc::read_result(stream, false)?;
         }
         if result == "success" {
             Ok(true)
@@ -57,10 +57,27 @@ impl Lcdproc {
         }
     }
 
-    fn read_result(stream: &TcpStream) -> std::io::Result<String> {
+    fn read_result(stream: &TcpStream, break_on_wouldblock: bool) -> std::io::Result<String> {
         let mut line = String::new();
         let mut reader = BufReader::new(stream.try_clone()?);
-        reader.read_line(&mut line)?;
+        loop {
+            match reader.read_line(&mut line) {
+                Ok(_) => {
+                    break;
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        if break_on_wouldblock {
+                            return Ok(line);
+                        }
+                        warn!("lcdproc: LCDd server busy, retrying");
+                        continue;
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+        }
         Lcdproc::trim_newline(&mut line);
         Ok(line)
     }
@@ -301,13 +318,11 @@ impl Lcdproc {
                         if read_interval.elapsed() > Duration::from_secs_f32(READ_INTERVAL_SECS) {
                             read_interval = Instant::now();
 
-                            match Lcdproc::read_result(&stream) {
+                            match Lcdproc::read_result(&stream, true) {
                                 Ok(_) => (),
                                 Err(e) => {
-                                    if e.kind() != std::io::ErrorKind::WouldBlock {
-                                        error!("{}: read error: {:?}", self.name, e);
-                                        break;
-                                    }
+                                    error!("{}: read error: {:?}", self.name, e);
+                                    break;
                                 }
                             };
                         }
