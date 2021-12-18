@@ -1,13 +1,11 @@
 use simplelog::*;
-use std::io::prelude::*;
-use std::io::BufReader;
-use std::io::Write;
 use std::io::{Error, ErrorKind};
-use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 
 pub const READ_INTERVAL_SECS: f32 = 1.0; //secs between reading data from TCP connection when idle
 
@@ -37,31 +35,31 @@ pub struct Lcdproc {
 }
 
 impl Lcdproc {
-    fn send_command(mut stream: &TcpStream, command: &str) -> std::io::Result<bool> {
-        stream.write(format!("{}\n", command).as_ref())?;
-        let mut result = Lcdproc::read_result(stream, false)?;
+    async fn send_command(stream: &mut TcpStream, command: &str) -> Result<bool> {
+        stream.write(format!("{}\n", command).as_ref()).await?;
+        let mut result = Lcdproc::read_result(stream, false).await?;
         if command == "hello" && result.starts_with("connect ") {
             info!("{}", result);
             return Ok(true);
         } else if result.starts_with("listen ") || result.starts_with("ignore ") {
             //we've got listen/ignore instead of success ... try read result again
-            result = Lcdproc::read_result(stream, false)?;
+            result = Lcdproc::read_result(stream, false).await?;
         }
         if result == "success" {
             Ok(true)
         } else {
-            Err(Error::new(
+            Err(Box::new(Error::new(
                 ErrorKind::Other,
                 "server doesn't respond with \"success\"",
-            ))
+            )))
         }
     }
 
-    fn read_result(stream: &TcpStream, break_on_wouldblock: bool) -> std::io::Result<String> {
+    async fn read_result(stream: &mut TcpStream, break_on_wouldblock: bool) -> Result<String> {
         let mut line = String::new();
-        let mut reader = BufReader::new(stream.try_clone()?);
+        let mut reader = BufReader::new(stream);
         loop {
-            match reader.read_line(&mut line) {
+            match reader.read_line(&mut line).await {
                 Ok(_) => {
                     break;
                 }
@@ -73,7 +71,7 @@ impl Lcdproc {
                         warn!("lcdproc: LCDd server busy, retrying");
                         continue;
                     } else {
-                        return Err(e);
+                        return Err(Box::new(e));
                     }
                 }
             }
@@ -91,59 +89,63 @@ impl Lcdproc {
         }
     }
 
-    fn set_emergency_mode(&mut self, stream: &TcpStream, enable: bool) -> std::io::Result<bool> {
+    async fn set_emergency_mode(&mut self, stream: &mut TcpStream, enable: bool) -> Result<bool> {
         if enable {
             // blink/flash and set as main screen
-            Lcdproc::send_command(&stream, "screen_set hard -backlight blink -priority 1")
+            Lcdproc::send_command(stream, "screen_set hard -backlight blink -priority 1").await
         } else {
             // return to normal
-            Lcdproc::send_command(&stream, "screen_set hard -backlight on -priority 100")
+            Lcdproc::send_command(stream, "screen_set hard -backlight on -priority 100").await
         }
     }
 
-    fn refresh_screen(
+    async fn refresh_screen(
         &mut self,
-        stream: &TcpStream,
+        stream: &mut TcpStream,
         line_no: Option<usize>,
-    ) -> std::io::Result<()> {
+    ) -> Result<()> {
         match line_no {
             Some(idx) => {
                 if idx == 3 {
                     match self.level {
                         Some(lev) => {
                             Lcdproc::send_command(
-                                &stream,
+                                stream,
                                 &format!("widget_set hard cesspool_bar 9 4 {}", 4 * 5 * lev),
-                            )?;
+                            )
+                            .await?;
                         }
                         _ => (),
                     }
                 } else {
                     Lcdproc::send_command(
-                        &stream,
+                        stream,
                         &format!(
                             "widget_set hard s{} 1 {} {{{}}}",
                             idx + 1,
                             idx + 1,
                             self.lcd_lines[idx]
                         ),
-                    )?;
+                    )
+                    .await?;
                 }
             }
             None => {
                 //refresh all data
                 for (idx, line) in self.lcd_lines.iter().enumerate() {
                     Lcdproc::send_command(
-                        &stream,
+                        stream,
                         &format!("widget_set hard s{} 1 {} {{{}}}", idx + 1, idx + 1, line),
-                    )?;
+                    )
+                    .await?;
                 }
                 match self.level {
                     Some(lev) => {
                         Lcdproc::send_command(
-                            &stream,
+                            stream,
                             &format!("widget_set hard cesspool_bar 9 4 {}", 4 * 5 * lev),
-                        )?;
+                        )
+                        .await?;
                     }
                     _ => (),
                 }
@@ -165,7 +167,7 @@ impl Lcdproc {
 
             tokio::time::sleep(Duration::from_secs(12)).await;
             info!("{}: connecting to {}...", self.name, self.lcdproc_host_port);
-            match TcpStream::connect(&self.lcdproc_host_port) {
+            match TcpStream::connect(&self.lcdproc_host_port).await {
                 Err(e) => {
                     error!(
                         "{}: {} connection error: {:?}",
@@ -173,7 +175,7 @@ impl Lcdproc {
                     );
                     continue;
                 }
-                Ok(stream) => {
+                Ok(mut stream) => {
                     info!(
                         "📟 {}: connected to server: {}",
                         self.name, self.lcdproc_host_port
@@ -201,65 +203,74 @@ impl Lcdproc {
                         }
                     }
 
-                    if let Err(e) = stream.set_read_timeout(Some(Duration::from_millis(500))) {
-                        error!("{}: set_read_timeout error: {:?}", self.name, e);
-                        continue;
-                    }
-
-                    if let Err(e) = Lcdproc::send_command(&stream, "hello") {
+                    if let Err(e) = Lcdproc::send_command(&mut stream, "hello").await {
                         error!("{}: write error: {:?}", self.name, e);
                         continue;
                     }
                     //configure/initialize our screen
-                    if let Err(e) = Lcdproc::send_command(&stream, "client_set -name {hard_lcd}") {
+                    if let Err(e) =
+                        Lcdproc::send_command(&mut stream, "client_set -name {hard_lcd}").await
+                    {
                         error!("{}: write error: {:?}", self.name, e);
                         continue;
                     }
-                    if let Err(e) = Lcdproc::send_command(&stream, "screen_add hard") {
+                    if let Err(e) = Lcdproc::send_command(&mut stream, "screen_add hard").await {
                         error!("{}: write error: {:?}", self.name, e);
                         continue;
                     }
                     if let Err(e) = Lcdproc::send_command(
-                        &stream,
+                        &mut stream,
                         "screen_set hard -priority 100 -heartbeat none",
-                    ) {
-                        error!("{}: write error: {:?}", self.name, e);
-                        continue;
-                    }
-                    if let Err(e) = Lcdproc::send_command(&stream, "widget_add hard s1 string") {
-                        error!("{}: write error: {:?}", self.name, e);
-                        continue;
-                    }
-                    if let Err(e) = Lcdproc::send_command(&stream, "widget_add hard s2 string") {
-                        error!("{}: write error: {:?}", self.name, e);
-                        continue;
-                    }
-                    if let Err(e) = Lcdproc::send_command(&stream, "widget_add hard s3 string") {
+                    )
+                    .await
+                    {
                         error!("{}: write error: {:?}", self.name, e);
                         continue;
                     }
                     if let Err(e) =
-                        Lcdproc::send_command(&stream, "widget_add hard cesspool_title string")
+                        Lcdproc::send_command(&mut stream, "widget_add hard s1 string").await
+                    {
+                        error!("{}: write error: {:?}", self.name, e);
+                        continue;
+                    }
+                    if let Err(e) =
+                        Lcdproc::send_command(&mut stream, "widget_add hard s2 string").await
+                    {
+                        error!("{}: write error: {:?}", self.name, e);
+                        continue;
+                    }
+                    if let Err(e) =
+                        Lcdproc::send_command(&mut stream, "widget_add hard s3 string").await
+                    {
+                        error!("{}: write error: {:?}", self.name, e);
+                        continue;
+                    }
+                    if let Err(e) =
+                        Lcdproc::send_command(&mut stream, "widget_add hard cesspool_title string")
+                            .await
                     {
                         error!("{}: write error: {:?}", self.name, e);
                         continue;
                     }
                     if let Err(e) = Lcdproc::send_command(
-                        &stream,
+                        &mut stream,
                         "widget_set hard cesspool_title 1 4 {c-pool:}",
-                    ) {
+                    )
+                    .await
+                    {
                         error!("{}: write error: {:?}", self.name, e);
                         continue;
                     }
                     if let Err(e) =
-                        Lcdproc::send_command(&stream, "widget_add hard cesspool_bar hbar")
+                        Lcdproc::send_command(&mut stream, "widget_add hard cesspool_bar hbar")
+                            .await
                     {
                         error!("{}: write error: {:?}", self.name, e);
                         continue;
                     }
 
                     //refreshing whole screen with previous data (if any)
-                    if let Err(e) = self.refresh_screen(&stream, None) {
+                    if let Err(e) = self.refresh_screen(&mut stream, None).await {
                         error!("{}: refresh_screen error: {:?}", self.name, e);
                         continue;
                     }
@@ -273,7 +284,8 @@ impl Lcdproc {
 
                         //checking for external lcd tasks
                         //fixme: read all tasks, not a single one at a call
-                        match self.lcd_receiver.try_recv() {
+                        let task = self.lcd_receiver.try_recv();
+                        match task {
                             Ok(t) => {
                                 debug!(
                                     "{}: received LcdTask: int_arg: {:?}, string_arg: {:?}",
@@ -286,21 +298,26 @@ impl Lcdproc {
                                             self.lcd_lines.resize(idx + 1, String::new());
                                         }
                                         self.lcd_lines[idx] = t.string_arg.unwrap();
-                                        if let Err(e) = self.refresh_screen(&stream, Some(idx)) {
+                                        if let Err(e) =
+                                            self.refresh_screen(&mut stream, Some(idx)).await
+                                        {
                                             error!("{}: refresh_screen error: {:?}", self.name, e);
                                             break;
                                         }
                                     }
                                     LcdTaskCommand::SetCesspoolLevel => {
                                         self.level = Some(t.int_arg);
-                                        if let Err(e) = self.refresh_screen(&stream, Some(3)) {
+                                        if let Err(e) =
+                                            self.refresh_screen(&mut stream, Some(3)).await
+                                        {
                                             error!("{}: refresh_screen error: {:?}", self.name, e);
                                             break;
                                         }
                                     }
                                     LcdTaskCommand::SetEmergencyMode => {
-                                        if let Err(e) =
-                                            self.set_emergency_mode(&stream, t.int_arg == 1)
+                                        if let Err(e) = self
+                                            .set_emergency_mode(&mut stream, t.int_arg == 1)
+                                            .await
                                         {
                                             error!(
                                                 "{}: set_emergency_mode error: {:?}",
@@ -318,7 +335,7 @@ impl Lcdproc {
                         if read_interval.elapsed() > Duration::from_secs_f32(READ_INTERVAL_SECS) {
                             read_interval = Instant::now();
 
-                            match Lcdproc::read_result(&stream, true) {
+                            match Lcdproc::read_result(&mut stream, true).await {
                                 Ok(_) => (),
                                 Err(e) => {
                                     error!("{}: read error: {:?}", self.name, e);
