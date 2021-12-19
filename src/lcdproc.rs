@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use tokio::time::timeout;
 
 pub const READ_INTERVAL_SECS: f32 = 1.0; //secs between reading data from TCP connection when idle
 
@@ -55,24 +56,25 @@ impl Lcdproc {
         }
     }
 
-    async fn read_result(stream: &mut TcpStream, break_on_wouldblock: bool) -> Result<String> {
+    async fn read_result(stream: &mut TcpStream, ignore_timeout: bool) -> Result<String> {
         let mut line = String::new();
         let mut reader = BufReader::new(stream);
         loop {
-            match reader.read_line(&mut line).await {
-                Ok(_) => {
-                    break;
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::WouldBlock {
-                        if break_on_wouldblock {
-                            return Ok(line);
-                        }
-                        warn!("lcdproc: LCDd server busy, retrying");
-                        continue;
-                    } else {
+            match timeout(Duration::from_millis(500), reader.read_line(&mut line)).await {
+                Ok(result) => match result {
+                    Ok(_) => {
+                        break;
+                    }
+                    Err(e) => {
                         return Err(Box::new(e));
                     }
+                },
+                Err(_) => {
+                    if ignore_timeout {
+                        return Ok(line);
+                    }
+                    warn!("lcdproc: LCDd server busy, retrying");
+                    continue;
                 }
             }
         }
