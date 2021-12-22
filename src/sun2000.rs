@@ -829,6 +829,25 @@ impl Sun2000State {
     }
 }
 
+fn get_attribute_name(id: &str) -> &'static str {
+    let device_description_attributes = vec![
+        (1, "Device model"),
+        (2, "Device software version"),
+        (3, "Port protocol version"),
+        (4, "ESN"),
+        (5, "Device ID"),
+        (6, "Feature version"),
+    ];
+    if let Ok(id) = id.parse::<u8>() {
+        for elem in device_description_attributes {
+            if elem.0 == id {
+                return elem.1;
+            }
+        }
+    }
+    "Unknown attribute"
+}
+
 pub struct Sun2000 {
     pub name: String,
     pub host_port: String,
@@ -1136,6 +1155,48 @@ impl Sun2000 {
             let _ = Sun2000::save_ms_to_influxdb(c, &self.name, ms, params.len()).await;
         }
         Ok((ctx, params))
+    }
+
+    pub fn attribute_parser(&self, mut a: Vec<u8>) -> Result<()> {
+        //search for 'Description about the first device' (0x88)
+        if let Some(index) = a.iter().position(|&x| x == 0x88) {
+            //strip beginning bytes up to descriptor start
+            a.drain(0..=index);
+
+            //next (first) byte is len
+            let len = a[0] as usize;
+
+            //leave only the relevant descriptor string
+            a = a.drain(1..=len).collect();
+
+            //convert it to string
+            let x = String::from_utf8(a)?;
+
+            //split by semicolons
+            let split = x.split(";");
+
+            //parse and dump all attributes
+            info!(
+                "<i>{}</i>: <blue>Device Description attributes:</>",
+                self.name
+            );
+            for s in split {
+                let mut sp = s.split("=");
+                let id = sp.next();
+                let val = sp.next();
+                if id.is_none() || val.is_none() {
+                    continue;
+                }
+                info!(
+                    "<i>{}</i>: <black>{}:</> {}: <b><cyan>{}</>",
+                    self.name,
+                    id.unwrap(),
+                    get_attribute_name(id.unwrap()),
+                    val.unwrap()
+                );
+            }
+        }
+        Ok(())
     }
 
     #[rustfmt::skip]
