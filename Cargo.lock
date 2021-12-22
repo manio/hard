@@ -2529,17 +2529,18 @@ dependencies = [
 
 [[package]]
 name = "tokio-modbus"
-version = "0.4.0"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0ae5e831be81aac27377e733f3332ea0928a733781951f4cc5c78d8fcce078c"
+checksum = "2ac0e6f42ae6a9c10712a72604ec26991807b3b8c740dcdc2e3abd4231ac1d99"
 dependencies = [
+ "async-trait",
  "byteorder",
- "bytes 0.5.6",
+ "bytes 1.0.1",
  "futures-util",
  "log",
  "smallvec",
- "tokio 0.2.24",
- "tokio-util 0.2.0",
+ "tokio 1.5.0",
+ "tokio-util 0.6.9",
 ]
 
 [[package]]
@@ -2598,9 +2599,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.2.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "571da51182ec208780505a32528fc5512a8fe1443ab960b3f2f3ef093cd16930"
+checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
 dependencies = [
  "bytes 0.5.6",
  "futures-core",
@@ -2612,16 +2613,16 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.3.1"
+version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be8242891f2b6cbef26a2d7e8605133c2c554cd35b3e4948ea892d6d68436499"
+checksum = "9e99e1983e5d376cd8eb4b66604d2e99e79f5bd988c3055891dcd8c9e2604cc0"
 dependencies = [
- "bytes 0.5.6",
+ "bytes 1.0.1",
  "futures-core",
  "futures-sink",
  "log",
- "pin-project-lite 0.1.11",
- "tokio 0.2.24",
+ "pin-project-lite 0.2.0",
+ "tokio 1.5.0",
 ]
 
 [[package]]
