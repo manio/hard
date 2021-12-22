@@ -1332,6 +1332,19 @@ impl Sun2000 {
                         parameters.push(Parameter::new("storage_current_day_discharge_capacity", ParamKind::NumberU32(None), None, Some("kWh"), 100, 37017, 2, false, true));
                     }
 
+                    // obtain Device Description Definition
+                    use tokio_modbus::prelude::*;
+                    let rsp = ctx.call(Request::Custom(0x2b, vec![0x0e, 0x03, 0x87])).await?;
+                    match rsp {
+                        Response::Custom(f, rsp) => {
+                            debug!("<i>{}</>: Result for function {} is '{:?}'", self.name, f, rsp);
+                            let _ = self.attribute_parser(rsp);
+                        }
+                        _ => {
+                            error!("<i>{}</>: unexpected Reading Device Identifiers (0x2B) result", self.name);
+                        }
+                    }
+
                     let mut daily_yield_energy: Option<u32> = None;
                     loop {
                         if worker_cancel_flag.load(Ordering::SeqCst) {
