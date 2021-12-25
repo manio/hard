@@ -1401,7 +1401,7 @@ impl Sun2000 {
                                             Some(fault_code) => {
                                                 if fault_code != 0 {
                                                     error!(
-                                                        "<i>{}</> inverter fault code is: <b><red>{:#08X}</>",
+                                                        "<i>{}</>: inverter fault code is: <b><red>{:#08X}</>",
                                                         self.name, fault_code
                                                     );
                                                 }
@@ -1440,7 +1440,7 @@ impl Sun2000 {
                                 s.name.ends_with("_status") ||
                                 s.name.ends_with("_code")).count();
                             if params.len() != param_count {
-                                error!("{}: problem obtaining a complete parameter list (read: {}, expected: {}), reconnecting...", self.name, params.len(), param_count);
+                                error!("<i>{}</>: problem obtaining a complete parameter list (read: {}, expected: {}), reconnecting...", self.name, params.len(), param_count);
                                 self.poll_errors = self.poll_errors + 1;
                                 break;
                             } else {
@@ -1488,7 +1488,7 @@ impl Sun2000 {
                     }
                 }
                 Err(e) => {
-                    error!("{}", e);
+                    error!("<i>{}</>: connection error: <b>{}</>", self.name, e);
                     tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             }
