@@ -1,5 +1,4 @@
-use evdev::Key::*;
-use evdev::KEY;
+use evdev::Key;
 use simplelog::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -48,7 +47,6 @@ impl Rfid {
                         .physical_path()
                         .as_ref()
                         .unwrap()
-                        .to_string_lossy()
                         .to_string())
                         == self.event_path
             });
@@ -65,11 +63,11 @@ impl Rfid {
                             break;
                         }
 
-                        match d.events_no_sync() {
+                        match d.fetch_events() {
                             Ok(events) => {
                                 for ev in events {
                                     /* ev.value=1 is for key_down */
-                                    if ev._type == KEY.number::<u16>() && ev.value == 1 {
+                                    if ev.event_type() == evdev::EventType::KEY && ev.value() == 1 {
                                         debug!("{}: got event: {:?}", self.name, ev);
                                         let mut tag_complete = false;
 
@@ -77,27 +75,27 @@ impl Rfid {
                                         //cannot do it using 'match' because 'as u16'
                                         //cannot be used inside the match statement
                                         let mut val = ' ';
-                                        if ev.code == KEY_0 as u16 {
+                                        if ev.code() == Key::KEY_0.code() {
                                             val = '0';
-                                        } else if ev.code == KEY_1 as u16 {
+                                        } else if ev.code() == Key::KEY_1.code() {
                                             val = '1';
-                                        } else if ev.code == KEY_2 as u16 {
+                                        } else if ev.code() == Key::KEY_2.code() {
                                             val = '2';
-                                        } else if ev.code == KEY_3 as u16 {
+                                        } else if ev.code() == Key::KEY_3.code() {
                                             val = '3';
-                                        } else if ev.code == KEY_4 as u16 {
+                                        } else if ev.code() == Key::KEY_4.code() {
                                             val = '4';
-                                        } else if ev.code == KEY_5 as u16 {
+                                        } else if ev.code() == Key::KEY_5.code() {
                                             val = '5';
-                                        } else if ev.code == KEY_6 as u16 {
+                                        } else if ev.code() == Key::KEY_6.code() {
                                             val = '6';
-                                        } else if ev.code == KEY_7 as u16 {
+                                        } else if ev.code() == Key::KEY_7.code() {
                                             val = '7';
-                                        } else if ev.code == KEY_8 as u16 {
+                                        } else if ev.code() == Key::KEY_8.code() {
                                             val = '8';
-                                        } else if ev.code == KEY_9 as u16 {
+                                        } else if ev.code() == Key::KEY_9.code() {
                                             val = '9';
-                                        } else if ev.code == KEY_ENTER as u16 {
+                                        } else if ev.code() == Key::KEY_ENTER.code() {
                                             tag_complete = true;
                                         }
 
