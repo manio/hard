@@ -43,12 +43,7 @@ impl Rfid {
             );
             let dev = evdev::enumerate().into_iter().find(|x| {
                 x.physical_path().is_some()
-                    && (x
-                        .physical_path()
-                        .as_ref()
-                        .unwrap()
-                        .to_string())
-                        == self.event_path
+                    && (x.physical_path().as_ref().unwrap().to_string()) == self.event_path
             });
 
             match dev {
