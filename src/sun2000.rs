@@ -1334,14 +1334,24 @@ impl Sun2000 {
 
                     // obtain Device Description Definition
                     use tokio_modbus::prelude::*;
-                    let rsp = ctx.call(Request::Custom(0x2b, vec![0x0e, 0x03, 0x87])).await?;
-                    match rsp {
-                        Response::Custom(f, rsp) => {
-                            debug!("<i>{}</>: Result for function {} is '{:?}'", self.name, f, rsp);
-                            let _ = self.attribute_parser(rsp);
-                        }
-                        _ => {
-                            error!("<i>{}</>: unexpected Reading Device Identifiers (0x2B) result", self.name);
+                    let retval = ctx.call(Request::Custom(0x2b, vec![0x0e, 0x03, 0x87]));
+                    match timeout(Duration::from_secs_f32(5.0), retval).await {
+                        Ok(res) => match res {
+                            Ok(rsp) => match rsp {
+                                Response::Custom(f, rsp) => {
+                                    debug!("<i>{}</>: Result for function {} is '{:?}'", self.name, f, rsp);
+                                    let _ = self.attribute_parser(rsp);
+                                }
+                                _ => {
+                                    error!("<i>{}</>: unexpected Reading Device Identifiers (0x2B) result", self.name);
+                                }
+                            },
+                            Err(e) => {
+                                warn!("<i>{}</i>: read error during <green><i>Reading Device Identifiers (0x2B)</>, error: <b>{}</>", self.name, e);
+                            }
+                        },
+                        Err(e) => {
+                            warn!("<i>{}</i>: read timeout during <green><i>Reading Device Identifiers (0x2B)</>, error: <b>{}</>", self.name, e);
                         }
                     }
 
