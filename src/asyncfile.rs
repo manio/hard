@@ -25,7 +25,18 @@ impl AsyncFile {
     pub async fn _read(&self, out: &mut [u8]) -> io::Result<usize> {
         loop {
             let mut guard = self.inner.readable().await?;
-            match guard.try_io(|inner| inner.get_ref().read(out)) {
+            match guard.try_io(|inner| {
+                let res = inner.get_ref().read(out);
+
+                //handle Ok(0) results:
+                if let Ok(len) = res {
+                    if len == 0 {
+                        return Err(Error::new(ErrorKind::Other, "USB disconnected"));
+                    }
+                }
+
+                res
+            }) {
                 Ok(result) => return result,
                 Err(_would_block) => continue,
             }
