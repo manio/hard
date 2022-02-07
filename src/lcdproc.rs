@@ -74,6 +74,7 @@ impl Lcdproc {
                         return Ok(line);
                     }
                     warn!("lcdproc: LCDd server busy, retrying");
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                     continue;
                 }
             }
