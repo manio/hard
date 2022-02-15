@@ -169,7 +169,10 @@ impl Lcdproc {
             }
 
             tokio::time::sleep(Duration::from_secs(12)).await;
-            info!("{}: connecting to {}...", self.name, self.lcdproc_host_port);
+            info!(
+                "{}: connecting to <u>{}</>...",
+                self.name, self.lcdproc_host_port
+            );
             match TcpStream::connect(&self.lcdproc_host_port).await {
                 Err(e) => {
                     error!(
