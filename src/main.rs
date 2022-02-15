@@ -26,7 +26,6 @@ use std::time::{Duration, Instant};
 use tokio::task;
 use tokio_compat_02::FutureExt;
 
-mod asyncfile;
 mod database;
 mod ethlcd;
 mod lcdproc;

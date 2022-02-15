@@ -1,4 +1,3 @@
-use crate::asyncfile::AsyncFile;
 use crate::onewire::StateMachine;
 use crate::skymax::Skymax;
 use chrono::{DateTime, Utc};
