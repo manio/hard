@@ -417,7 +417,7 @@ impl RemehaState {
 
 pub struct Remeha {
     pub display_name: String,
-    pub device_path: String,
+    pub device_host_port: String,
     pub poll_ok: u64,
     pub poll_errors: u64,
     pub influxdb_url: Option<String>,
