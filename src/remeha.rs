@@ -464,11 +464,11 @@ impl Remeha {
 
     pub async fn query_boiler(
         &mut self,
-        mut device: AsyncFile,
+        device: &mut AsyncFile,
         function_code: u16,
         data: u16,
         reply_size: usize,
-    ) -> io::Result<(Option<Vec<u8>>, AsyncFile)> {
+    ) -> io::Result<Option<Vec<u8>>> {
         let mut buffer = vec![0u8; reply_size];
         let mut output_cmd: Vec<u8> = vec![];
         let mut out: Option<Vec<u8>> = None;
@@ -497,7 +497,7 @@ impl Remeha {
         );
         if let Err(e) = device.write_all(&output_cmd).await {
             error!("{} write error: {:?}", self.display_name, e);
-            return Ok((out, device));
+            return Ok(out);
         }
         let now = Instant::now();
 
@@ -535,7 +535,7 @@ impl Remeha {
             }
         }
 
-        Ok((out, device))
+        Ok(out)
     }
 
     fn get_device_path(&self) -> Result<String> {
@@ -648,9 +648,9 @@ impl Remeha {
                                             poll_interval = Instant::now();
 
                                             //query for sample data
-                                            let (buffer, new_handle) =
-                                                self.query_boiler(file, 0x105, 0x201, 74).await?;
-                                            file = new_handle;
+                                            let buffer = self
+                                                .query_boiler(&mut file, 0x105, 0x201, 74)
+                                                .await?;
                                             match buffer {
                                                 Some(mut data) => {
                                                     //remove protocol overhead bytes:
