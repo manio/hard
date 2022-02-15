@@ -1,19 +1,17 @@
 use crate::onewire::StateMachine;
-use crate::skymax::Skymax;
 use chrono::{DateTime, Utc};
 use crc16::*;
 use influxdb::{Client, InfluxDbWriteable};
 use simplelog::*;
 use std::fmt;
 use std::io;
-use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use termios::*;
-use tokio::fs::OpenOptions;
+use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_compat_02::FutureExt;
 
@@ -463,7 +461,7 @@ impl Remeha {
 
     pub async fn query_boiler(
         &mut self,
-        device: &mut AsyncFile,
+        stream: &mut TcpStream,
         function_code: u16,
         data: u16,
         reply_size: usize,
@@ -494,13 +492,13 @@ impl Remeha {
             "{} sending function_code={:04x} data={:04x} crc=0x{:04X} frame={:02X?}",
             self.display_name, function_code, data, crc, output_cmd
         );
-        if let Err(e) = device.write_all(&output_cmd).await {
+        if let Err(e) = stream.write_all(&output_cmd).await {
             error!("{} write error: {:?}", self.display_name, e);
             return Ok(out);
         }
         let now = Instant::now();
 
-        let retval = device.read_exact(&mut buffer);
+        let retval = stream.read_exact(&mut buffer);
         match timeout(Duration::from_secs_f32(2.5), retval).await {
             Ok(res) => match res {
                 Ok(_) => {
@@ -537,25 +535,6 @@ impl Remeha {
         Ok(out)
     }
 
-    fn get_device_path(&self) -> Result<String> {
-        //get the tty device name, like 'ttyACM0'
-        let dev_name = Skymax::get_first_dir(self.device_path.clone())?;
-
-        //create the full /dev/ path with obtained filename
-        let mut full_path = "/dev/".to_string();
-        full_path.push_str(&dev_name);
-
-        Ok(full_path)
-    }
-
-    fn setup_fd(fd: RawFd) -> io::Result<()> {
-        let mut termios = Termios::from_fd(fd)?;
-        cfmakeraw(&mut termios);
-        tcsetattr(fd, TCSANOW, &termios)?;
-        tcflush(fd, TCIOFLUSH)?;
-        Ok(())
-    }
-
     pub async fn worker(&mut self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
         info!("{} Starting task", self.display_name);
         let mut poll_interval = Instant::now();
@@ -568,138 +547,95 @@ impl Remeha {
                 break;
             }
 
-            //obtain device path from sysfs
-            let device_path = match self.get_device_path() {
-                Ok(path) => path,
-                Err(e) => {
-                    error!(
-                        "{} unable to obtain device path: {:?}",
-                        self.display_name, e
-                    );
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                    continue;
-                }
-            };
-
             info!(
-                "{} opening device: {:?}, obtained from physical path: {:?}",
-                self.display_name, device_path, self.device_path
+                "{}: connecting to <u>{}</>...",
+                self.display_name, self.device_host_port
             );
-            let mut options = OpenOptions::new();
-            let future = options.read(true).write(true).open(&device_path);
+            let future = TcpStream::connect(&self.device_host_port);
             match timeout(Duration::from_secs(5), future).await {
                 Ok(res) => {
                     match res {
-                        Ok(f) => {
+                        Ok(mut stream) => {
                             info!(
                                 "{} device opened, poll interval: {}s",
                                 self.display_name, REMEHA_POLL_INTERVAL_SECS
                             );
 
-                            //call cfmakeraw on a fd termios struct
-                            //to enable raw mode
-                            if let Err(e) = Remeha::setup_fd(f.as_raw_fd()) {
-                                error!(
-                                    "{} error calling cfmakeraw() on fd: {:?}",
-                                    self.display_name, e
-                                );
-                                tokio::time::sleep(Duration::from_secs(10)).await;
-                                continue;
-                            }
-
-                            //create a AsyncFd object on file
-                            match AsyncFile::new(f) {
-                                Err(e) => {
-                                    error!("{} error creating AsyncFd: {:?}", self.display_name, e);
-                                    tokio::time::sleep(Duration::from_secs(10)).await;
-                                    continue;
+                            loop {
+                                if worker_cancel_flag.load(Ordering::SeqCst) {
+                                    debug!("{} Got terminate signal from main", self.display_name);
+                                    terminated = true;
                                 }
-                                Ok(mut file) => {
-                                    loop {
-                                        if worker_cancel_flag.load(Ordering::SeqCst) {
-                                            debug!(
-                                                "{} Got terminate signal from main",
-                                                self.display_name
-                                            );
-                                            terminated = true;
-                                        }
 
-                                        if terminated
-                                            || stats_interval.elapsed()
-                                                > Duration::from_secs_f32(
-                                                    REMEHA_STATS_DUMP_INTERVAL_SECS,
-                                                )
-                                        {
-                                            stats_interval = Instant::now();
-                                            info!(
-                                                "{} 📊 boiler query statistics: ok: {}, errors: {}",
-                                                self.display_name, self.poll_ok, self.poll_errors
-                                            );
+                                if terminated
+                                    || stats_interval.elapsed()
+                                        > Duration::from_secs_f32(REMEHA_STATS_DUMP_INTERVAL_SECS)
+                                {
+                                    stats_interval = Instant::now();
+                                    info!(
+                                        "{} 📊 boiler query statistics: ok: {}, errors: {}",
+                                        self.display_name, self.poll_ok, self.poll_errors
+                                    );
 
-                                            if terminated {
-                                                break;
+                                    if terminated {
+                                        break;
+                                    }
+                                }
+
+                                if poll_interval.elapsed()
+                                    > Duration::from_secs_f32(REMEHA_POLL_INTERVAL_SECS)
+                                {
+                                    poll_interval = Instant::now();
+
+                                    //query for sample data
+                                    let buffer =
+                                        self.query_boiler(&mut stream, 0x105, 0x201, 74).await?;
+                                    match buffer {
+                                        Some(mut data) => {
+                                            //remove protocol overhead bytes:
+                                            data.drain(0..=6);
+
+                                            //parse data
+                                            let sample = SampleData::new(data);
+                                            debug!("{} {}", self.display_name, sample);
+
+                                            //write data to influxdb if configured
+                                            match &self.influxdb_url {
+                                                Some(url) => {
+                                                    // By calling compat on the async function, everything inside it is able
+                                                    // to use Tokio 0.2 features.
+                                                    let _ = sample
+                                                        .save_to_influxdb(url, &self.display_name)
+                                                        .compat()
+                                                        .await;
+                                                }
+                                                None => (),
                                             }
-                                        }
 
-                                        if poll_interval.elapsed()
-                                            > Duration::from_secs_f32(REMEHA_POLL_INTERVAL_SECS)
-                                        {
-                                            poll_interval = Instant::now();
-
-                                            //query for sample data
-                                            let buffer = self
-                                                .query_boiler(&mut file, 0x105, 0x201, 74)
-                                                .await?;
-                                            match buffer {
-                                                Some(mut data) => {
-                                                    //remove protocol overhead bytes:
-                                                    data.drain(0..=6);
-
-                                                    //parse data
-                                                    let sample = SampleData::new(data);
-                                                    debug!("{} {}", self.display_name, sample);
-
-                                                    //write data to influxdb if configured
-                                                    match &self.influxdb_url {
-                                                        Some(url) => {
-                                                            // By calling compat on the async function, everything inside it is able
-                                                            // to use Tokio 0.2 features.
-                                                            let _ = sample
-                                                                .save_to_influxdb(
-                                                                    url,
-                                                                    &self.display_name,
-                                                                )
-                                                                .compat()
-                                                                .await;
-                                                        }
-                                                        None => (),
-                                                    }
-
-                                                    remeha_state = Some(match remeha_state {
-                                                        Some(mut current_state) => {
-                                                            if current_state.set_new_status(
-                                                                &self.display_name,
-                                                                sample.status_code,
-                                                                sample.substatus_code,
-                                                                sample.failure_code,
-                                                                sample.error_code,
-                                                            ) && (sample.failure_code != 255
-                                                                || sample.error_code != 255)
-                                                            {
-                                                                // run a shell script when mode has changed
-                                                                // and we have failure or error
-                                                                match &self.state_change_script {
-                                                                    Some(command) => {
-                                                                        let mut cmd = command
-                                                                            .to_string()
-                                                                            .clone();
-                                                                        cmd = str::replace(
-                                                                            &cmd,
-                                                                            "%state%",
-                                                                            &format!(
-                                                                                "{}{}",
-                                                                                {
-                                                                                    if sample.failure_code
+                                            remeha_state = Some(match remeha_state {
+                                                Some(mut current_state) => {
+                                                    if current_state.set_new_status(
+                                                        &self.display_name,
+                                                        sample.status_code,
+                                                        sample.substatus_code,
+                                                        sample.failure_code,
+                                                        sample.error_code,
+                                                    ) && (sample.failure_code != 255
+                                                        || sample.error_code != 255)
+                                                    {
+                                                        // run a shell script when mode has changed
+                                                        // and we have failure or error
+                                                        match &self.state_change_script {
+                                                            Some(command) => {
+                                                                let mut cmd =
+                                                                    command.to_string().clone();
+                                                                cmd = str::replace(
+                                                                    &cmd,
+                                                                    "%state%",
+                                                                    &format!(
+                                                                        "{}{}",
+                                                                        {
+                                                                            if sample.failure_code
                                                                                 != 255
                                                                             {
                                                                                 format!("\nFailure/Locking: {}: {}",
@@ -709,56 +645,51 @@ impl Remeha {
                                                                             } else {
                                                                                 "".to_string()
                                                                             }
-                                                                                },
-                                                                                {
-                                                                                    if sample
-                                                                                        .error_code
-                                                                                        != 255
-                                                                                    {
-                                                                                        format!("\nError/Blocking: {}: {}",
+                                                                        },
+                                                                        {
+                                                                            if sample.error_code
+                                                                                != 255
+                                                                            {
+                                                                                format!("\nError/Blocking: {}: {}",
                                                                                         sample.error_code,
                                                                                         SampleData::get_error_code_description(sample.error_code),
                                                                                 )
-                                                                                    } else {
-                                                                                        "".to_string()
-                                                                                    }
-                                                                                },
-                                                                            ),
-                                                                        );
-                                                                        thread::spawn(move || {
-                                                                            StateMachine::run_shell_command(
+                                                                            } else {
+                                                                                "".to_string()
+                                                                            }
+                                                                        },
+                                                                    ),
+                                                                );
+                                                                thread::spawn(move || {
+                                                                    StateMachine::run_shell_command(
                                                                         cmd,
                                                                     )
-                                                                        });
-                                                                    }
-                                                                    _ => (),
-                                                                };
+                                                                });
                                                             }
-                                                            current_state
-                                                        }
-                                                        None => {
-                                                            let new_state = RemehaState {
-                                                                status_code: sample.status_code,
-                                                                substatus_code: sample
-                                                                    .substatus_code,
-                                                                failure_code: sample.failure_code,
-                                                                error_code: sample.error_code,
-                                                            };
-                                                            new_state
-                                                                .show_status(&self.display_name);
-                                                            new_state
-                                                        }
-                                                    });
+                                                            _ => (),
+                                                        };
+                                                    }
+                                                    current_state
                                                 }
                                                 None => {
-                                                    break;
+                                                    let new_state = RemehaState {
+                                                        status_code: sample.status_code,
+                                                        substatus_code: sample.substatus_code,
+                                                        failure_code: sample.failure_code,
+                                                        error_code: sample.error_code,
+                                                    };
+                                                    new_state.show_status(&self.display_name);
+                                                    new_state
                                                 }
-                                            }
+                                            });
                                         }
-
-                                        tokio::time::sleep(Duration::from_millis(30)).await;
+                                        None => {
+                                            break;
+                                        }
                                     }
                                 }
+
+                                tokio::time::sleep(Duration::from_millis(30)).await;
                             }
                         }
                         Err(e) => {
