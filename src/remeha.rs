@@ -557,7 +557,7 @@ impl Remeha {
                     match res {
                         Ok(mut stream) => {
                             info!(
-                                "{} device opened, poll interval: {}s",
+                                "{} connected, poll interval: {}s",
                                 self.display_name, REMEHA_POLL_INTERVAL_SECS
                             );
 
