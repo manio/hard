@@ -26,7 +26,6 @@ use std::time::{Duration, Instant};
 use tokio::task;
 use tokio_compat_02::FutureExt;
 
-mod asyncfile;
 mod database;
 mod ethlcd;
 mod lcdproc;
@@ -328,11 +327,11 @@ async fn main() {
 
     //remeha async task
     match get_config_string("remeha_device", None) {
-        Some(path) => {
+        Some(host) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut remeha = remeha::Remeha {
                 display_name: "<i><black>remeha:</>".to_string(),
-                device_path: path,
+                device_host_port: host,
                 poll_ok: 0,
                 poll_errors: 0,
                 influxdb_url: influxdb_url.clone(),
