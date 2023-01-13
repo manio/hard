@@ -548,7 +548,7 @@ impl Remeha {
             }
 
             info!(
-                "{}: connecting to <u>{}</>...",
+                "{} connecting to <u>{}</>...",
                 self.display_name, self.device_host_port
             );
             let future = TcpStream::connect(&self.device_host_port);
