@@ -302,9 +302,18 @@ impl InverterMode {
     fn set_new_mode(&mut self, current_mode: char, thread_name: &String) -> bool {
         if self.mode != current_mode {
             warn!(
-                "{}: inverter mode changed from {:?} to {:?} after {:?}",
+                "{}: inverter mode changed from <b><bright-white>{}</> to <b>{}<on-black> {} </> after <yellow>{}</>",
                 thread_name,
                 InverterMode::get_mode_description(self.mode),
+                {
+                    if current_mode == 'B' || current_mode == 'F' {
+                        "<l><red>"
+                    } else if current_mode == 'L' {
+                        "<green>"
+                    } else {
+                        ""
+                    }
+                },
                 InverterMode::get_mode_description(current_mode),
                 format_duration(self.last_change.elapsed()).to_string()
             );
