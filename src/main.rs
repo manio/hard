@@ -330,7 +330,7 @@ async fn main() {
         Some(host) => {
             let worker_cancel_flag = cancel_flag.clone();
             let mut remeha = remeha::Remeha {
-                display_name: "<i><black>remeha:</>".to_string(),
+                display_name: "<i><bright-black>remeha:</>".to_string(),
                 device_host_port: host,
                 poll_ok: 0,
                 poll_errors: 0,

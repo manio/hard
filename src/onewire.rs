@@ -1623,7 +1623,7 @@ impl OneWire {
                                                             ),
                                                             pio_name,
                                                             new_value,
-                                                            {if on {"<bold><green>active"} else {"<black>inactive"}},
+                                                            {if on {"<bold><green>active"} else {"<bright-black>inactive"}},
                                                             {if stop_processing {", <yellow>stopped processing</>"} else {""}},
                                                         );
                                                         if stop_processing {

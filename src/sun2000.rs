@@ -1257,7 +1257,7 @@ impl Sun2000 {
                     continue;
                 }
                 info!(
-                    "<i>{}</i>: <black>{}:</> {}: <b><cyan>{}</>",
+                    "<i>{}</i>: <bright-black>{}:</> {}: <b><cyan>{}</>",
                     self.name,
                     id.unwrap(),
                     get_attribute_name(id.unwrap()),
