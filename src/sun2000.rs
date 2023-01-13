@@ -847,37 +847,52 @@ impl Sun2000State {
             self.state_3 = state_3;
         }
         if alarm_1.is_some() && self.alarm_1 != alarm_1 {
+            failure = alarm_1.unwrap() != 0;
             if alarm_1.unwrap() != 0 || self.alarm_1.is_some() {
-                info!(
-                    "<i>{}</>: alarm_1: <b><red>{}</>",
+                let msg = format!(
+                    "<i>{}</>: alarm_1: {}",
                     thread_name,
                     Sun2000State::get_alarm1_description(alarm_1.unwrap())
                 );
+                if failure {
+                    error!("{}", msg);
+                } else {
+                    info!("{}", msg);
+                }
             }
             self.alarm_1 = alarm_1;
-            failure = alarm_1.unwrap() != 0;
         }
         if alarm_2.is_some() && self.alarm_2 != alarm_2 {
+            failure = alarm_2.unwrap() != 0;
             if alarm_2.unwrap() != 0 || self.alarm_2.is_some() {
-                info!(
-                    "<i>{}</>: alarm_2: <b><red>{}</>",
+                let msg = format!(
+                    "<i>{}</>: alarm_2: {}",
                     thread_name,
                     Sun2000State::get_alarm2_description(alarm_2.unwrap())
                 );
+                if failure {
+                    error!("{}", msg);
+                } else {
+                    info!("{}", msg);
+                }
             }
             self.alarm_2 = alarm_2;
-            failure = alarm_2.unwrap() != 0;
         }
         if alarm_3.is_some() && self.alarm_3 != alarm_3 {
+            failure = alarm_3.unwrap() != 0;
             if alarm_3.unwrap() != 0 || self.alarm_3.is_some() {
-                info!(
-                    "<i>{}</>: alarm_3: <b><red>{}</>",
+                let msg = format!(
+                    "<i>{}</>: alarm_3: {}",
                     thread_name,
                     Sun2000State::get_alarm3_description(alarm_3.unwrap())
                 );
+                if failure {
+                    error!("{}", msg);
+                } else {
+                    info!("{}", msg);
+                }
             }
             self.alarm_3 = alarm_3;
-            failure = alarm_3.unwrap() != 0;
         }
         failure
     }
