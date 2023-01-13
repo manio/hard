@@ -701,7 +701,7 @@ impl Sun2000State {
         for mask in alarm1_masks {
             if code & mask.0 > 0 {
                 descr = descr.add(
-                    format!("code={} {:?} severity={}", mask.1.code, mask.1.name, mask.1.severity).as_str()
+                    format!("<b><red>code={} {:?} severity={}</>", mask.1.code, mask.1.name, mask.1.severity).as_str()
                 ).add(" | ");
             }
         }
@@ -711,7 +711,7 @@ impl Sun2000State {
             descr.pop();
             descr
         } else {
-            "None".into()
+            "<green>None</>".into()
         }
     }
 
@@ -739,7 +739,7 @@ impl Sun2000State {
         for mask in alarm2_masks {
             if code & mask.0 > 0 {
                 descr = descr.add(
-                    format!("code={} {:?} severity={}", mask.1.code, mask.1.name, mask.1.severity).as_str()
+                    format!("<b><red>code={} {:?} severity={}</>", mask.1.code, mask.1.name, mask.1.severity).as_str()
                 ).add(" | ");
             }
         }
@@ -749,7 +749,7 @@ impl Sun2000State {
             descr.pop();
             descr
         } else {
-            "None".into()
+            "<green>None</>".into()
         }
     }
 
@@ -770,7 +770,7 @@ impl Sun2000State {
         for mask in alarm3_masks {
             if code & mask.0 > 0 {
                 descr = descr.add(
-                    format!("code={} {:?} severity={}", mask.1.code, mask.1.name, mask.1.severity).as_str()
+                    format!("<b><red>code={} {:?} severity={}</>", mask.1.code, mask.1.name, mask.1.severity).as_str()
                 ).add(" | ");
             }
         }
@@ -780,7 +780,7 @@ impl Sun2000State {
             descr.pop();
             descr
         } else {
-            "None".into()
+            "<green>None</>".into()
         }
     }
 
