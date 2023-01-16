@@ -652,10 +652,38 @@ impl Yeelight {
         }
     }
 
+    fn tasmota_command(yeelight_name: String, ip_addr: String, turn_on: bool) -> bool {
+        let cmd = if turn_on { "Power On" } else { "Power off" };
+        let url =
+            reqwest::Url::parse_with_params(&format!("http://{}/cm", ip_addr), &[("cmnd", cmd)])
+                .unwrap();
+        debug!("URL = {:?}", url.as_str());
+
+        for _ in 1..=3 {
+            debug!(
+                "Tasmota: {}: sending <blue>{}</> command...",
+                yeelight_name, cmd
+            );
+            let resp = reqwest::blocking::get(url.clone()).unwrap();
+            if resp.status() == reqwest::StatusCode::OK {
+                return true;
+            } else {
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
+        false
+    }
+
     fn turn_on_off(&mut self, turn_on: bool, dev: &Device) {
         let yeelight_name = dev.name.clone();
         let ip_address = self.ip_address.clone();
-        thread::spawn(move || Yeelight::yeelight_tcp_command(yeelight_name, ip_address, turn_on));
+        if yeelight_name.starts_with("Nous") {
+            thread::spawn(move || Yeelight::tasmota_command(yeelight_name, ip_address, turn_on));
+        } else {
+            thread::spawn(move || {
+                Yeelight::yeelight_tcp_command(yeelight_name, ip_address, turn_on)
+            });
+        }
 
         self.powered_on = turn_on;
     }

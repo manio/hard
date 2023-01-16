@@ -13,6 +13,7 @@ Features:
 - [InfluxDB](https://www.influxdata.com/products/influxdb/) Time Series Database support for collecting misc stats
 - PIR sensors / alarm control
 - [Yeelight](https://www.yeelight.com/) LED Smart Bulb on/off control
+- [Tasmota](https://tasmota.github.io/docs/)/[Nous](https://nous.technology/) Smart WiFi Socket Nous A1T with Tasmota
 - [Rocket](https://rocket.rs/) based embedded webserver for very simple remote control
 - [HIH-4000-003 humidity sensor](https://skyboo.net/2017/03/ds2438-based-1-wire-humidity-sensor/) support and automatic fan control
 - doorbell support
