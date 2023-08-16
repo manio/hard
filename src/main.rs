@@ -24,6 +24,7 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 use tokio::task;
+use tokio::task::JoinSet;
 use tokio_compat_02::FutureExt;
 
 mod database;
@@ -119,7 +120,7 @@ async fn main() {
     //common thread stuff
     let influxdb_url = get_config_string("influxdb_url", None);
     let mut threads = vec![];
-    let mut futures = vec![];
+    let mut futures = JoinSet::new();
     let cancel_flag = Arc::new(AtomicBool::new(false));
     let sensor_devices = onewire::SensorDevices {
         kinds: HashMap::new(),
@@ -184,8 +185,8 @@ async fn main() {
             daily_yield_energy: None,
         };
         let worker_cancel_flag = cancel_flag.clone();
-        let db_future = task::spawn(async move { db.worker(worker_cancel_flag).await });
-        futures.push(db_future);
+        let db_future = async move { db.worker(worker_cancel_flag).await };
+        futures.spawn(db_future);
     }
 
     if !get_config_bool("disable_onewire", None) {
@@ -238,9 +239,8 @@ async fn main() {
             db_transmitter: tx.clone(),
         };
         let worker_cancel_flag = cancel_flag.clone();
-        let webserver_future =
-            task::spawn(async move { webserver.worker(worker_cancel_flag).await });
-        futures.push(webserver_future);
+        let webserver_future = async move { webserver.worker(worker_cancel_flag).await };
+        futures.spawn(webserver_future);
     }
 
     //rfid task
@@ -252,8 +252,8 @@ async fn main() {
                 rfid_pending_tags: onewire_rfid_pending_tags.clone(),
             };
             let worker_cancel_flag = cancel_flag.clone();
-            let rfid_future = task::spawn(async move { rfid.worker(worker_cancel_flag).await });
-            futures.push(rfid_future);
+            let rfid_future = async move { rfid.worker(worker_cancel_flag).await };
+            futures.spawn(rfid_future);
         }
         _ => {}
     };
@@ -272,8 +272,8 @@ async fn main() {
                 lcd_transmitter: lcd_tx.clone(),
                 mode_change_script: get_config_string("skymax_mode_change_script", None),
             };
-            let skymax_future = task::spawn(async move { skymax.worker(worker_cancel_flag).await });
-            futures.push(skymax_future);
+            let skymax_future = async move { skymax.worker(worker_cancel_flag).await };
+            futures.spawn(skymax_future);
         }
         _ => {}
     }
@@ -295,9 +295,8 @@ async fn main() {
                 battery_installed: get_config_bool("battery_installed", Some("sun2000")),
                 dongle_connection: get_config_bool("dongle_connection", Some("sun2000")),
             };
-            let sun2000_future =
-                task::spawn(async move { sun2000.worker(worker_cancel_flag).compat().await });
-            futures.push(sun2000_future);
+            let sun2000_future = async move { sun2000.worker(worker_cancel_flag).compat().await };
+            futures.spawn(sun2000_future);
         }
         _ => {}
     }
@@ -313,9 +312,8 @@ async fn main() {
                 lcd_lines: vec![],
                 level: None,
             };
-            let lcdproc_future =
-                task::spawn(async move { lcdproc.worker(worker_cancel_flag).await });
-            futures.push(lcdproc_future);
+            let lcdproc_future = async move { lcdproc.worker(worker_cancel_flag).await };
+            futures.spawn(lcdproc_future);
         }
         _ => {}
     }
@@ -332,8 +330,8 @@ async fn main() {
                 influxdb_url: influxdb_url.clone(),
                 state_change_script: get_config_string("remeha_state_change_script", None),
             };
-            let remeha_future = task::spawn(async move { remeha.worker(worker_cancel_flag).await });
-            futures.push(remeha_future);
+            let remeha_future = async move { remeha.worker(worker_cancel_flag).await };
+            futures.spawn(remeha_future);
         }
         _ => {}
     }
