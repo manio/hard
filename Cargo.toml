@@ -20,7 +20,7 @@ rocket = { version = "0.5.0-rc.3", features = ["tls"] }
 sun = "0.2"
 evdev = { version = "0.12.1", features = ["tokio"] }
 futures = "0.3"
-tokio = { version = "1.15.0", features = ["full"] }
+tokio = { version = "1.31.0", features = ["full"] }
 crc16 = "0.4.0"
 influxdb = { version = "0.3.0", features = ["derive"] }
 chrono = { version = "0.4.11", features = ["serde"] }
