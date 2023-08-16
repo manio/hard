@@ -25,7 +25,7 @@ pub fn hello() -> &'static str {
 }
 
 #[get("/reload")]
-pub fn reload(transmitters: State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>)>>>) -> String {
+pub fn reload(transmitters: &State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>)>>>) -> String {
     let task = DbTask {
         command: CommandCode::ReloadDevices,
         value: None,
@@ -38,7 +38,7 @@ pub fn reload(transmitters: State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>
 }
 
 #[get("/fan-on")]
-pub fn fan_on(transmitters: State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>)>>>) -> String {
+pub fn fan_on(transmitters: &State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>)>>>) -> String {
     let task = OneWireTask {
         command: TaskCommand::TurnOnProlong,
         id_relay: Some(14),
@@ -54,7 +54,7 @@ pub fn fan_on(transmitters: State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>
 }
 
 #[get("/fan-off")]
-pub fn fan_off(transmitters: State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>)>>>) -> String {
+pub fn fan_off(transmitters: &State<Arc<Mutex<(Sender<OneWireTask>, Sender<DbTask>)>>>) -> String {
     let task = OneWireTask {
         command: TaskCommand::TurnOff,
         id_relay: Some(14),
@@ -84,7 +84,7 @@ impl WebServer {
                 break;
             }
 
-            let result = rocket::ignite()
+            let result = rocket::build()
                 .mount("/cmd", routes![hello, reload, fan_on, fan_off])
                 .manage(transmitters.clone())
                 .launch()
