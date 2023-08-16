@@ -41,7 +41,7 @@ impl Rfid {
                 "{}: trying to open device with physical path: {:?}",
                 self.name, self.event_path
             );
-            let dev = evdev::enumerate().into_iter().find(|x| {
+            let dev = evdev::enumerate().map(|t| t.1).into_iter().find(|x| {
                 x.physical_path().is_some()
                     && (x.physical_path().as_ref().unwrap().to_string()) == self.event_path
             });
