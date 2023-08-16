@@ -55,6 +55,8 @@ impl Rfid {
                     info!("{}: device {:?} opened", self.name, d.name());
                     let mut tag_id: String = "".to_string();
                     let mut local_pending_tags: Vec<u32> = vec![];
+                    let mut events = d.into_event_stream()?;
+
                     loop {
                         if worker_cancel_flag.load(Ordering::SeqCst) {
                             debug!("Got terminate signal from main");
@@ -62,72 +64,60 @@ impl Rfid {
                             break;
                         }
 
-                        match d.fetch_events() {
-                            Ok(events) => {
-                                for ev in events {
-                                    /* ev.value=1 is for key_down */
-                                    if ev.event_type() == evdev::EventType::KEY && ev.value() == 1 {
-                                        debug!("{}: got event: {:?}", self.name, ev);
-                                        let mut tag_complete = false;
+                        let ev = events.next_event().await?;
+                        /* ev.value=1 is for key_down */
+                        if ev.event_type() == evdev::EventType::KEY && ev.value() == 1 {
+                            debug!("{}: got event: {:?}", self.name, ev);
+                            let mut tag_complete = false;
 
-                                        //fixme - fix somehow the following ugly code
-                                        //cannot do it using 'match' because 'as u16'
-                                        //cannot be used inside the match statement
-                                        let mut val = ' ';
-                                        if ev.code() == Key::KEY_0.code() {
-                                            val = '0';
-                                        } else if ev.code() == Key::KEY_1.code() {
-                                            val = '1';
-                                        } else if ev.code() == Key::KEY_2.code() {
-                                            val = '2';
-                                        } else if ev.code() == Key::KEY_3.code() {
-                                            val = '3';
-                                        } else if ev.code() == Key::KEY_4.code() {
-                                            val = '4';
-                                        } else if ev.code() == Key::KEY_5.code() {
-                                            val = '5';
-                                        } else if ev.code() == Key::KEY_6.code() {
-                                            val = '6';
-                                        } else if ev.code() == Key::KEY_7.code() {
-                                            val = '7';
-                                        } else if ev.code() == Key::KEY_8.code() {
-                                            val = '8';
-                                        } else if ev.code() == Key::KEY_9.code() {
-                                            val = '9';
-                                        } else if ev.code() == Key::KEY_ENTER.code() {
-                                            tag_complete = true;
-                                        }
+                            //fixme - fix somehow the following ugly code
+                            //cannot do it using 'match' because 'as u16'
+                            //cannot be used inside the match statement
+                            let mut val = ' ';
+                            if ev.code() == Key::KEY_0.code() {
+                                val = '0';
+                            } else if ev.code() == Key::KEY_1.code() {
+                                val = '1';
+                            } else if ev.code() == Key::KEY_2.code() {
+                                val = '2';
+                            } else if ev.code() == Key::KEY_3.code() {
+                                val = '3';
+                            } else if ev.code() == Key::KEY_4.code() {
+                                val = '4';
+                            } else if ev.code() == Key::KEY_5.code() {
+                                val = '5';
+                            } else if ev.code() == Key::KEY_6.code() {
+                                val = '6';
+                            } else if ev.code() == Key::KEY_7.code() {
+                                val = '7';
+                            } else if ev.code() == Key::KEY_8.code() {
+                                val = '8';
+                            } else if ev.code() == Key::KEY_9.code() {
+                                val = '9';
+                            } else if ev.code() == Key::KEY_ENTER.code() {
+                                tag_complete = true;
+                            }
 
-                                        if tag_complete {
-                                            match tag_id.parse::<u32>() {
-                                                Ok(tag) => {
-                                                    info!(
-                                                        "{}: 🏷️ got complete tag ID: {}",
-                                                        self.name, tag
-                                                    );
+                            if tag_complete {
+                                match tag_id.parse::<u32>() {
+                                    Ok(tag) => {
+                                        info!("{}: 🏷️ got complete tag ID: {}", self.name, tag);
 
-                                                    if !self.push_tag_upstream(tag) {
-                                                        //unable to obtain a write lock, keep it locally
-                                                        local_pending_tags.push(tag);
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    error!(
-                                                        "{}: error parsing tag ID {:?}: {:?}",
-                                                        self.name, tag_id, e
-                                                    );
-                                                }
-                                            }
-                                            tag_id.clear();
-                                        } else {
-                                            tag_id.push(val);
+                                        if !self.push_tag_upstream(tag) {
+                                            //unable to obtain a write lock, keep it locally
+                                            local_pending_tags.push(tag);
                                         }
                                     }
+                                    Err(e) => {
+                                        error!(
+                                            "{}: error parsing tag ID {:?}: {:?}",
+                                            self.name, tag_id, e
+                                        );
+                                    }
                                 }
-                            }
-                            Err(e) => {
-                                error!("{}: error processing events: {:?}", self.name, e);
-                                break;
+                                tag_id.clear();
+                            } else {
+                                tag_id.push(val);
                             }
                         }
 
