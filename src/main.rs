@@ -355,7 +355,17 @@ async fn main() {
         let _ = t.join();
     }
     //wait for tokio async tasks
-    let _ = join_all(futures).await;
+    let mut cnt = 2;
+    while let f = futures.join_next() {
+        if let Err(r) = tokio::time::timeout(Duration::from_secs(10), f).await {
+            cnt = cnt - 1;
+            if cnt == 0 {
+                error!("Unable to gracefully stop all tasks, forcing stop...");
+                break;
+            };
+            warn!("Still waiting for task(s) to stop...");
+        }
+    }
 
     info!(
         "🚩 hard terminated, daemon running time: {}",
