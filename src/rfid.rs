@@ -5,6 +5,10 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 
+// Just a generic Result type to ease error handling for us. Errors in multithreaded
+// async contexts needs some extra restrictions
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 pub struct RfidTag {
     pub id_tag: i32,
     pub name: String,
@@ -28,8 +32,8 @@ impl Rfid {
             Err(_) => false,
         }
     }
-    pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
-        info!("{}: Starting thread", self.name);
+    pub async fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
+        info!("{}: Starting task", self.name);
         let mut terminated = false;
 
         loop {
@@ -149,6 +153,7 @@ impl Rfid {
                 }
             }
         }
-        info!("{}: thread stopped", self.name);
+        info!("{}: task stopped", self.name);
+        Ok(())
     }
 }

@@ -243,7 +243,7 @@ async fn main() {
         futures.push(webserver_future);
     }
 
-    //rfid thread
+    //rfid task
     match get_config_string("rfid_event_path", None) {
         Some(event_path) => {
             let rfid = rfid::Rfid {
@@ -252,13 +252,8 @@ async fn main() {
                 rfid_pending_tags: onewire_rfid_pending_tags.clone(),
             };
             let worker_cancel_flag = cancel_flag.clone();
-            let thread_builder = thread::Builder::new().name("rfid".into()); //thread name
-            let thread_handler = thread_builder
-                .spawn(move || {
-                    rfid.worker(worker_cancel_flag);
-                })
-                .unwrap();
-            threads.push(thread_handler);
+            let rfid_future = task::spawn(async move { rfid.worker(worker_cancel_flag).await });
+            futures.push(rfid_future);
         }
         _ => {}
     };
