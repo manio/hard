@@ -84,7 +84,7 @@ impl WebServer {
                 break;
             }
 
-            let result = rocket::ignite()
+            let result = rocket::build()
                 .mount("/cmd", routes![hello, reload, fan_on, fan_off])
                 .manage(transmitters.clone())
                 .launch()
