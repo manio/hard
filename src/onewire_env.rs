@@ -16,6 +16,10 @@ use std::{fs, thread};
 pub const TEMP_CHECK_INTERVAL_SECS: f32 = 300.0; //secs between measuring temperature
 pub const HUMID_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between measuring humidity
 
+// Just a generic Result type to ease error handling for us. Errors in multithreaded
+// async contexts needs some extra restrictions
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 pub struct EnvSensor {
     pub id_sensor: i32,
     pub id_kind: i32,
@@ -255,8 +259,8 @@ pub struct OneWireEnv {
 }
 
 impl OneWireEnv {
-    pub fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) {
-        info!("{}: Starting thread", self.name);
+    pub async fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
+        info!("{}: Starting task", self.name);
         let mut last_temp_check = Instant::now();
         let mut last_humid_check = Instant::now();
 
@@ -363,6 +367,7 @@ impl OneWireEnv {
 
             thread::sleep(Duration::from_millis(100));
         }
-        info!("{}: thread stopped", self.name);
+        info!("{}: task stopped", self.name);
+        Ok(())
     }
 }

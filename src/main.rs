@@ -215,20 +215,15 @@ async fn main() {
             .unwrap();
         threads.push(thread_handler);
 
-        //creating onewire_env thread
+        //creating onewire_env task
         let onewire_env = onewire_env::OneWireEnv {
             name: "onewire_env".to_string(),
             ow_transmitter: ow_tx.clone(),
             env_sensor_devices: onewire_env_sensor_devices.clone(),
         };
         let worker_cancel_flag = cancel_flag.clone();
-        let thread_builder = thread::Builder::new().name("onewire_env".into()); //thread name
-        let thread_handler = thread_builder
-            .spawn(move || {
-                onewire_env.worker(worker_cancel_flag);
-            })
-            .unwrap();
-        threads.push(thread_handler);
+        let onewire_env_future = async move { onewire_env.worker(worker_cancel_flag).await };
+        futures.spawn(onewire_env_future);
     }
 
     if !get_config_bool("disable_webserver", None) {
