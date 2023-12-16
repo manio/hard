@@ -365,7 +365,7 @@ impl OneWireEnv {
                 }
             }
 
-            thread::sleep(Duration::from_millis(100));
+            tokio::time::sleep(Duration::from_millis(100)).await;
         }
         info!("{}: task stopped", self.name);
         Ok(())
