@@ -1,7 +1,7 @@
+use flume::Receiver;
 use simplelog::*;
 use std::io::{Error, ErrorKind};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};

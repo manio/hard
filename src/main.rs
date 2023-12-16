@@ -12,14 +12,13 @@ use crate::ethlcd::EthLcd;
 use crate::lcdproc::LcdTask;
 use crate::onewire::OneWireTask;
 use crate::rfid::RfidTag;
+use flume::{Receiver, Sender};
 use futures::future::join_all;
 use humantime::format_duration;
 use std::collections::HashMap;
 use std::env;
 use std::fs::OpenOptions;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -144,9 +143,9 @@ async fn main() {
     let onewire_env_sensor_devices = Arc::new(RwLock::new(env_sensor_devices));
     let onewire_rfid_tags = Arc::new(RwLock::new(rfid_tags));
     let onewire_rfid_pending_tags = Arc::new(RwLock::new(rfid_pending_tags));
-    let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = mpsc::channel(); //database thread comm channel
-    let (ow_tx, ow_rx): (Sender<OneWireTask>, Receiver<OneWireTask>) = mpsc::channel(); //onewire thread comm channel
-    let (lcd_tx, lcd_rx): (Sender<LcdTask>, Receiver<LcdTask>) = mpsc::channel(); //lcdproc comm channel
+    let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = flume::unbounded(); //database thread comm channel
+    let (ow_tx, ow_rx): (Sender<OneWireTask>, Receiver<OneWireTask>) = flume::unbounded(); //onewire thread comm channel
+    let (lcd_tx, lcd_rx): (Sender<LcdTask>, Receiver<LcdTask>) = flume::unbounded(); //lcdproc comm channel
 
     //ethlcd struct
     let ethlcd = match get_config_string("ethlcd_host", None) {

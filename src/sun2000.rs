@@ -1,6 +1,7 @@
 use crate::database::{CommandCode, DbTask};
 use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use chrono::{Local, LocalResult, NaiveDateTime, TimeZone};
+use flume::Sender;
 use influxdb::{Client, InfluxDbWriteable, Timestamp, Type};
 use io::ErrorKind;
 use simplelog::*;
@@ -8,7 +9,6 @@ use std::fmt;
 use std::io;
 use std::ops::Add;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::time::{SystemTime, UNIX_EPOCH};

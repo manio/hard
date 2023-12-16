@@ -3,11 +3,11 @@ extern crate postgres;
 extern crate postgres_openssl;
 
 use self::ini::Ini;
+use flume::Receiver;
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use simplelog::*;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
 use std::sync::{Arc, RwLock};
 
 use crate::onewire;
