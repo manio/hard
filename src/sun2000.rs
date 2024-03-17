@@ -1544,9 +1544,9 @@ impl Sun2000 {
                             let task = LcdTask {
                                 command: LcdTaskCommand::SetLineText,
                                 int_arg: 0,
-                                string_arg: Some(format!("PV {:.1} kWh, {} W",
-                                    daily_yield_energy.unwrap_or_default() as f64 / 100.0,
+                                string_arg: Some(format!("PV {} W, {:.1} kWh",
                                     active_power.unwrap_or_default(),
+                                    daily_yield_energy.unwrap_or_default() as f64 / 100.0,
                                 ))};
                             let _ = self.lcd_transmitter.send(task);
 
