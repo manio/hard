@@ -1075,7 +1075,7 @@ impl Sun2000 {
         let mut params: Vec<Parameter> = vec![];
         let mut disconnected = false;
         let now = Instant::now();
-        for p in parameters.into_iter().filter(|s| {
+        let mut params_wanted: Vec<_> = parameters.into_iter().filter(|s| {
             (initial_read && s.initial_read)
                 || (!initial_read
                     && (s.save_to_influx
@@ -1083,15 +1083,46 @@ impl Sun2000 {
                         || s.name.starts_with("alarm_")
                         || s.name.ends_with("_status")
                         || s.name.ends_with("_code")))
-        }) {
+        }).collect();
+
+        //sort by register address
+        params_wanted.sort_by(|a, b| a.reg_address.cmp(&b.reg_address));
+
+        //group to 64-bytes register blocks
+        let mut reg_block = vec![];
+        let mut all_blocks = vec![];
+        let mut start_addr = None;
+        let mut pe = params_wanted.into_iter().peekable();
+        while pe.peek().is_some() {
+            let p = pe.next().unwrap();
+            if start_addr.is_none() {
+                start_addr = Some(p.reg_address);
+            } else {
+                if p.reg_address + p.len - start_addr.unwrap() > 64 {
+                  start_addr = Some(p.reg_address);
+                  all_blocks.push(reg_block);
+                  reg_block = vec![];
+                }
+            }
+            reg_block.push(p);
+        }
+        //add remainder
+        all_blocks.push(reg_block);
+
+        for (i, reg_block) in all_blocks.iter().enumerate() {
             if disconnected {
                 break;
             }
+
+            let last = reg_block.last().unwrap();
+            let start_addr = reg_block[0].reg_address;
+            let len = last.reg_address + last.len - start_addr;
+
             let mut attempts = 0;
             while attempts < SUN2000_ATTEMPTS_PER_PARAM {
                 attempts = attempts + 1;
-                debug!("-> obtaining {} ({:?})...", p.name, p.desc);
-                let retval = ctx.read_holding_registers(p.reg_address, p.len);
+                debug!("-> obtaining register block #{} start={:#x}, len={}, attempt={}", i, start_addr, len, attempts);
+                let retval = ctx.read_holding_registers(start_addr, len);
                 let read_res;
                 let start = Instant::now();
                 let read_time;
@@ -1102,8 +1133,8 @@ impl Sun2000 {
                     }
                     Err(e) => {
                         let msg = format!(
-                            "<i>{}</i>: read timeout (attempt #{} of {}), register: <green><i>{}</>, error: <b>{}</>",
-                            self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e
+                            "<i>{}</i>: read timeout (attempt #{} of {}), register: <green><i>{:#x}+{}</>, error: <b>{}</>",
+                            self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, start_addr, len, e
                         );
                         if attempts == SUN2000_ATTEMPTS_PER_PARAM {
                             error!("{}", msg);
@@ -1118,11 +1149,15 @@ impl Sun2000 {
                     Ok(data) => {
                         if read_time > Duration::from_secs_f32(3.5) {
                             warn!(
-                                "<i>{}</i>: inverter has lagged during read, register: <green><i>{}</>, read time: <b>{:?}</>",
-                                self.name, p.name, read_time
+                                "<i>{}</i>: inverter has lagged during read, register: <green><i>{:#x}+{}</>, read time: <b>{:?}</>",
+                                self.name, start_addr, len, read_time
                             );
                         }
 
+                       for p in reg_block {
+                        let offset = (p.reg_address - start_addr) as usize;
+                        let data = &data[offset..offset + (p.len as usize)];
+                        debug!("-> parsing {} ({:?}) @ {:#x} offset={:#x} len={}...", p.name, p.desc, p.reg_address, offset, p.len);
                         let mut val;
                         match &p.value {
                             ParamKind::Text(_) => {
@@ -1181,13 +1216,15 @@ impl Sun2000 {
                                 let _ = Sun2000::save_to_influxdb(c, &self.name, param).await;
                             }
                         }
-
-                        break; //read next parameter
+                       }
+                        //we parsed all parameters in this block,
+                        //break the attempt loop and try next register block
+                        break;
                     }
                     Err(e) => {
                         let msg = format!(
-                            "<i>{}</i>: read error (attempt #{} of {}), register: <green><i>{}</>, error: <b>{}</>, read time: <b>{:?}</>",
-                            self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, p.name, e, read_time
+                            "<i>{}</i>: read error (attempt #{} of {}), register: <green><i>{:#x}+{}</>, error: <b>{}</>, read time: <b>{:?}</>",
+                            self.name, attempts, SUN2000_ATTEMPTS_PER_PARAM, start_addr, len, e, read_time
                         );
                         match e.kind() {
                             ErrorKind::BrokenPipe | ErrorKind::ConnectionReset => {
