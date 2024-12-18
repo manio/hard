@@ -1865,6 +1865,39 @@ impl OneWire {
                             //save output state when needed
                             rb.save_state();
                         }
+
+                        //iteration on all yeelights and check 'all night' tag
+                        for yeelight in &mut relay_dev.yeelight {
+                            let d = relays.relay.iter_mut().find(|y| y.id == yeelight.id);
+                            match d {
+                                Some(dev) => {
+                                    let mut relay_marked: bool = false;
+                                    for tag in &dev.tags {
+                                        match tag.as_ref() {
+                                            "all_night" => {
+                                                relay_marked = true;
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    if relay_marked {
+                                        if dev.turn_on_prolong(
+                                            ProlongKind::DayNight,
+                                            night,
+                                            yeelight.get_dest_name(None),
+                                            night,
+                                            !yeelight.powered_on,
+                                            None,
+                                        ) {
+                                            yeelight.turn_on_off(night, &dev);
+                                            dev.last_toggled = Some(Instant::now());
+                                            self.increment_yeelight_counter(yeelight.id);
+                                        }
+                                    }
+                                }
+                                _ => (),
+                            }
+                        }
                     }
                 }
 
