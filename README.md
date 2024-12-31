@@ -1,4 +1,4 @@
-# hard (home automation rust-daemon)
+# 💎 hard (home automation rust-daemon)
 This is my very customized home automation project written in [Rust](https://www.rust-lang.org/).
 
 The core functionality of this daemon is controlling the lights in my home, based on [PIR sensor](https://en.wikipedia.org/wiki/Passive_infrared_sensor) detection.
