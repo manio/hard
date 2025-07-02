@@ -664,11 +664,17 @@ impl Yeelight {
                 "Tasmota: {}: sending <blue>{}</> command...",
                 yeelight_name, cmd
             );
-            let resp = reqwest::blocking::get(url.clone()).unwrap();
-            if resp.status() == reqwest::StatusCode::OK {
-                return true;
-            } else {
-                thread::sleep(Duration::from_secs(1));
+            match reqwest::blocking::get(url.clone()) {
+                Ok(resp) => {
+                    if resp.status() == reqwest::StatusCode::OK {
+                        return true;
+                    } else {
+                        thread::sleep(Duration::from_secs(1));
+                    }
+                }
+                Err(e) => {
+                    error!("Tasmota: {}: {}", yeelight_name, e);
+                }
             }
         }
         false
