@@ -18,7 +18,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::ops::Add;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -1110,6 +1110,9 @@ impl StateMachine {
         let mut args: Vec<&str> = cmd.splitn(2, " ").collect();
         let output = Command::new(args.remove(0))
             .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .output()
             .expect("Error calling script");
         info!(
