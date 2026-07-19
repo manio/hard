@@ -27,6 +27,7 @@ use tokio::task::JoinSet;
 use tokio_compat_02::FutureExt;
 
 mod database;
+mod deye;
 mod ethlcd;
 mod lcdproc;
 mod onewire;
