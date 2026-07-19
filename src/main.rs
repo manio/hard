@@ -296,6 +296,22 @@ async fn main() {
         _ => {}
     }
 
+    //deye async task
+    match get_config_string("host", Some("deye")) {
+        Some(host) => {
+            let worker_cancel_flag = cancel_flag.clone();
+            let mut deye = deye::Deye::new(deye::DeyeConfig {
+                name: "deye".to_string(),
+                host_port: host,
+                dongle_connection: get_config_bool("dongle_connection", Some("deye")),
+                enable_write: get_config_bool("enable_write", Some("deye")),
+            });
+            let deye_future = async move { deye.worker(worker_cancel_flag).compat().await };
+            futures.spawn(deye_future);
+        }
+        _ => {}
+    }
+
     //lcdproc async task
     match get_config_string("lcdproc", None) {
         Some(host) => {
