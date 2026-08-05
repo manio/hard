@@ -376,7 +376,7 @@ impl Deye {
         Parameter::new("Grid Voltage", Category::Grid, 138, 1, RegKind::U16, 1.0f32, None, true, None, None),
         Parameter::new("Charging Signal", Category::Grid, 140, 1, RegKind::U16, 1.0f32, None, true, None, None),
         Parameter::new("Force Off Grid", Category::Grid, 179, 1, RegKind::U16, 1.0f32, None, true, None, None),
-        Parameter::new("Grid Frequency", Category::Grid, 183, 1, RegKind::U16, 1.0f32, None, true, None, None),
+        Parameter::new("Grid Frequency Setting", Category::Grid, 183, 1, RegKind::U16, 1.0f32, None, true, None, None),
         Parameter::new("Generator Grid Side", Category::Grid, 189, 1, RegKind::U16, 1.0f32, None, true, None, None),
         Parameter::new("AC Couple", Category::Grid, 234, 1, RegKind::U16, 1.0f32, None, true, None, None),
         Parameter::new("Asymmetric Phase Feeding Raw", Category::Grid, 237, 1, RegKind::U16, 1.0f32, None, true, None, None),
