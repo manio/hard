@@ -168,6 +168,7 @@ impl Parameter {
     }
 }
 
+#[derive(Debug)]
 pub struct DeyeConfig {
     pub name: String,
     pub host_port: String,
@@ -189,6 +190,7 @@ impl Default for DeyeConfig {
     }
 }
 
+#[derive(Debug)]
 pub struct Deye {
     pub config: DeyeConfig,
     pub poll_ok: u64,

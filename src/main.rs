@@ -306,6 +306,7 @@ async fn main() {
                 dongle_connection: get_config_bool("dongle_connection", Some("deye")),
                 enable_write: get_config_bool("enable_write", Some("deye")),
             });
+            info!("config = {:?}", deye);
             let deye_future = async move { deye.worker(worker_cancel_flag).compat().await };
             futures.spawn(deye_future);
         }
