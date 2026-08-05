@@ -725,37 +725,51 @@ impl Deye {
         mut ctx: Context,
         param_name: &str,
         raw_value: u16,
-    ) -> Result<Context> {
+    ) -> (Context, Result<()>) {
         if !self.config.enable_write {
-            return Err(format!(
-                "{}: refusing to write '{}': writes are disabled (DeyeConfig::enable_write = false)",
-                self.config.name, param_name
-            )
-            .into());
+            return (
+                ctx,
+                Err(format!(
+                    "{}: refusing to write '{}': writes are disabled (DeyeConfig::enable_write = false)",
+                    self.config.name, param_name
+                )
+                .into()),
+            );
         }
 
         let table = Deye::param_table();
-        let p = table
-            .iter()
-            .find(|p| p.name == param_name)
-            .ok_or_else(|| format!("{}: unknown parameter '{}'", self.config.name, param_name))?;
+        let p = match table.iter().find(|p| p.name == param_name) {
+            Some(p) => p,
+            None => {
+                return (
+                    ctx,
+                    Err(format!("{}: unknown parameter '{}'", self.config.name, param_name).into()),
+                )
+            }
+        };
 
         if !p.writable {
-            return Err(format!(
-                "{}: parameter '{}' is read-only on this inverter (no number/select/switch mapping)",
-                self.config.name, param_name
-            )
-            .into());
+            return (
+                ctx,
+                Err(format!(
+                    "{}: parameter '{}' is read-only on this inverter (no number/select/switch mapping)",
+                    self.config.name, param_name
+                )
+                .into()),
+            );
         }
 
         if let (Some(min), Some(max)) = (p.min, p.max) {
             let scaled = raw_value as f32 / p.gain;
             if scaled < min || scaled > max {
-                return Err(format!(
-                    "{}: value {} for '{}' out of range [{}, {}]",
-                    self.config.name, scaled, param_name, min, max
-                )
-                .into());
+                return (
+                    ctx,
+                    Err(format!(
+                        "{}: value {} for '{}' out of range [{}, {}]",
+                        self.config.name, scaled, param_name, min, max
+                    )
+                    .into()),
+                );
             }
         }
 
@@ -764,8 +778,8 @@ impl Deye {
             self.config.name, p.address, param_name, raw_value
         );
         let retval = ctx.write_single_register(p.address, raw_value);
-        match timeout(Duration::from_secs_f32(5.0), retval).await {
-            Ok(Ok(())) => Ok(ctx),
+        let result = match timeout(Duration::from_secs_f32(5.0), retval).await {
+            Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(format!(
                 "{}: write error for '{}': {}",
                 self.config.name, param_name, e
@@ -776,24 +790,31 @@ impl Deye {
                 self.config.name, param_name, e
             )
             .into()),
-        }
+        };
+        (ctx, result)
     }
 
     /// Writes the inverter's date/time (registers 0x003E-0x0040), matching the
     /// esphome project's `time_sync.yaml`. Disabled by default, same as
     /// `set_parameter` - gated on `self.config.enable_write`.
+    ///
+    /// Always returns `ctx` back (even on error/when writes are disabled),
+    /// so callers can keep using the same Modbus connection afterwards.
     pub async fn write_time(
         &mut self,
         mut ctx: Context,
         dt: chrono::NaiveDateTime,
-    ) -> Result<Context> {
-        if !self.config.enable_write {
-            return Err(format!(
-                "{}: refusing to write inverter time: writes are disabled (DeyeConfig::enable_write = false)",
-                self.config.name
-            )
-            .into());
-        }
+    ) -> (Context, Result<()>) {
+        /*if !self.config.enable_write {
+            return (
+                ctx,
+                Err(format!(
+                    "{}: refusing to write inverter time: writes are disabled (DeyeConfig::enable_write = false)",
+                    self.config.name
+                )
+                .into()),
+            );
+        }*/
         use chrono::{Datelike, Timelike};
         let regs = [
             ((dt.year() as u16 % 100) << 8) | (dt.month() as u16),
@@ -805,11 +826,12 @@ impl Deye {
             self.config.name, dt
         );
         let retval = ctx.write_multiple_registers(0x003E, &regs);
-        match timeout(Duration::from_secs_f32(5.0), retval).await {
-            Ok(Ok(())) => Ok(ctx),
+        let result = match timeout(Duration::from_secs_f32(5.0), retval).await {
+            Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(format!("{}: time write error: {}", self.config.name, e).into()),
             Err(e) => Err(format!("{}: time write timeout: {}", self.config.name, e).into()),
-        }
+        };
+        (ctx, result)
     }
 
     #[rustfmt::skip]
@@ -824,6 +846,10 @@ impl Deye {
         let mut poll_interval = Instant::now();
         let mut stats_interval = Instant::now();
         let parameters = Deye::param_table();
+        // one-time clock sync for the lifetime of this worker() call - NOT
+        // reset on reconnect, so it only fires once even if the connection
+        // drops and comes back later.
+        let mut time_synced = false;
 
         loop {
             if worker_cancel_flag.load(Ordering::SeqCst) {
@@ -847,6 +873,28 @@ impl Deye {
             match conn {
                 Ok(mut ctx) => {
                     info!("<i>{}</>: connected successfully", self.config.name);
+
+                    //one-time clock sync to GMT/UTC, only on the very first successful
+                    //connect of this worker() run (not repeated on later reconnects).
+                    //write_time() itself checks enable_write and no-ops (returns Err)
+                    //when it's false, so this is safe to always attempt.
+                    if !time_synced {
+                        let now_utc = chrono::Utc::now().naive_utc();
+                        let (new_ctx, result) = self.write_time(ctx, now_utc).await;
+                        ctx = new_ctx;
+                        match result {
+                            Ok(()) => {
+                                info!("<i>{}</>: inverter clock synced to {} UTC", self.config.name, now_utc);
+                            }
+                            Err(e) => {
+                                debug!("<i>{}</>: skipping time sync: {}", self.config.name, e);
+                            }
+                        }
+                        // whether it succeeded, failed, or writes are disabled, don't
+                        // retry this every reconnect
+                        time_synced = true;
+                    }
+
                     let mut terminated = false;
                     // raw "Daily *" register values (all gain=10, i.e. tenths of kWh)
                     let mut daily_pv_raw: Option<u16> = None;
