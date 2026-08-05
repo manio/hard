@@ -145,6 +145,10 @@ async fn main() {
     let onewire_rfid_tags = Arc::new(RwLock::new(rfid_tags));
     let onewire_rfid_pending_tags = Arc::new(RwLock::new(rfid_pending_tags));
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = flume::unbounded(); //database thread comm channel
+    let (deye_yield_tx, deye_yield_rx): (
+        Sender<database::DeyeDailyYield>,
+        Receiver<database::DeyeDailyYield>,
+    ) = flume::unbounded(); //deye daily-yield comm channel
     let (ow_tx, ow_rx): (Sender<OneWireTask>, Receiver<OneWireTask>) = flume::unbounded(); //onewire thread comm channel
     let (lcd_tx, lcd_rx): (Sender<LcdTask>, Receiver<LcdTask>) = flume::unbounded(); //lcdproc comm channel
 
@@ -183,6 +187,8 @@ async fn main() {
             influx_relay_values: Default::default(),
             influx_cesspool_level: None,
             daily_yield_energy: None,
+            deye_yield_receiver: deye_yield_rx,
+            deye_daily_yield: None,
         };
         let worker_cancel_flag = cancel_flag.clone();
         let db_future = async move { db.worker(worker_cancel_flag).await };
@@ -305,6 +311,8 @@ async fn main() {
                 host_port: host,
                 dongle_connection: get_config_bool("dongle_connection", Some("deye")),
                 enable_write: get_config_bool("enable_write", Some("deye")),
+                deye_yield_transmitter: Some(deye_yield_tx.clone()),
+                influxdb_url: influxdb_url.clone(),
             });
             info!("config = {:?}", deye);
             let deye_future = async move { deye.worker(worker_cancel_flag).compat().await };

@@ -19,6 +19,9 @@
 // (noted inline as `// aka: ...` comments on the parameter table below) - worth
 // double-checking against the MODBUS RTU V105 doc before relying on them for writes.
 
+use crate::database::DeyeDailyYield;
+use flume::Sender;
+use influxdb::{Client, InfluxDbWriteable, Timestamp, Type};
 use io::ErrorKind;
 use simplelog::*;
 use std::fmt;
@@ -26,6 +29,7 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::timeout;
 use tokio_modbus::client::Context;
 use tokio_modbus::prelude::*;
@@ -34,6 +38,17 @@ pub const DEYE_POLL_INTERVAL_SECS: f32 = 10.0;
 pub const DEYE_STATS_DUMP_INTERVAL_SECS: f32 = 3600.0;
 pub const DEYE_ATTEMPTS_PER_PARAM: u8 = 3;
 pub const DEYE_MAX_REGS_PER_BLOCK: u16 = 64;
+/// Names of the daily energy counters pushed to Postgres each stats-dump
+/// interval via a dedicated Sender<DeyeDailyYield> channel (see
+/// DeyeConfig::deye_yield_transmitter) into the deye_daily_energy
+/// table/function - independent from sun2000's DbTask/CommandCode.
+pub const DEYE_YIELD_PV: &str = "Daily PV Production";
+pub const DEYE_YIELD_BATTERY_CHARGE: &str = "Daily Battery Charge";
+pub const DEYE_YIELD_BATTERY_DISCHARGE: &str = "Daily Battery Discharge";
+pub const DEYE_YIELD_GRID_BOUGHT: &str = "Daily Energy Bought";
+pub const DEYE_YIELD_GRID_SOLD: &str = "Daily Energy Sold";
+pub const DEYE_YIELD_LOAD: &str = "Daily Load Consumption";
+pub const DEYE_YIELD_GENERATOR: &str = "Daily Generator Production";
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -166,6 +181,36 @@ impl Parameter {
             ParamValue::Bool(v) => v.map(|b| b.to_string()).unwrap_or_default(),
         }
     }
+
+    /// Same mapping sun2000.rs uses: scaled values become Float, unscaled
+    /// integers keep their native (Un)SignedInteger influxdb type.
+    pub fn get_influx_value(&self) -> Option<influxdb::Type> {
+        match &self.value {
+            ParamValue::Text(v) => v.clone().map(Type::Text),
+            ParamValue::U16(v) => v.map(|x| {
+                if self.gain != 1.0 {
+                    Type::Float(x as f64 / self.gain as f64)
+                } else {
+                    Type::UnsignedInteger(x as u64)
+                }
+            }),
+            ParamValue::I16(v) => v.map(|x| {
+                if self.gain != 1.0 {
+                    Type::Float(x as f64 / self.gain as f64)
+                } else {
+                    Type::SignedInteger(x as i64)
+                }
+            }),
+            ParamValue::U32(v) => v.map(|x| {
+                if self.gain != 1.0 {
+                    Type::Float(x as f64 / self.gain as f64)
+                } else {
+                    Type::UnsignedInteger(x as u64)
+                }
+            }),
+            ParamValue::Bool(v) => v.map(|b| Type::Boolean(b)),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -177,6 +222,15 @@ pub struct DeyeConfig {
     /// Defaults to `false`: with this off, `set_parameter()`/`write_time()`
     /// always return an error and no write ever reaches the inverter.
     pub enable_write: bool,
+    /// InfluxDB base URL (e.g. "http://localhost:8086"). When set, every
+    /// parameter is written to the "deye" influx database each poll cycle,
+    /// same as sun2000.rs does for its own "sun2000" database.
+    pub influxdb_url: Option<String>,
+    /// Dedicated channel for daily energy counters (see database.rs'
+    /// DeyeDailyYield / deye_daily_energy table) - deliberately NOT
+    /// DbTask/db_transmitter, so nothing else in the codebase (sun2000.rs,
+    /// onewire.rs, ...) needs to change.
+    pub deye_yield_transmitter: Option<Sender<DeyeDailyYield>>,
 }
 
 impl Default for DeyeConfig {
@@ -186,6 +240,8 @@ impl Default for DeyeConfig {
             host_port: "127.0.0.1:502".to_string(),
             dongle_connection: true,
             enable_write: false,
+            influxdb_url: None,
+            deye_yield_transmitter: None,
         }
     }
 }
@@ -447,11 +503,61 @@ impl Deye {
     /// Reads every parameter in `parameters`, grouped into contiguous Modbus
     /// register blocks (max `DEYE_MAX_REGS_PER_BLOCK` registers/request), same
     /// strategy as sun2000.rs::read_params.
+    async fn save_to_influxdb(client: influxdb::Client, thread_name: &str, param: &Parameter) {
+        let value = match param.get_influx_value() {
+            Some(v) => v,
+            None => return, // nothing read this cycle, skip
+        };
+
+        let start = SystemTime::now();
+        let since_the_epoch = start
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+
+        let mut query = Timestamp::Milliseconds(since_the_epoch).into_query(param.name);
+        query = query.add_field("value", value);
+
+        match client.query(&query).await {
+            Ok(msg) => debug!("{}: influxdb write success: {:?}", thread_name, msg),
+            Err(e) => error!("<i>{}</>: influxdb write error: <b>{:?}</>", thread_name, e),
+        }
+    }
+
+    async fn save_ms_to_influxdb(
+        client: influxdb::Client,
+        thread_name: &str,
+        ms: u64,
+        param_count: usize,
+    ) {
+        let start = SystemTime::now();
+        let since_the_epoch = start
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis();
+
+        let mut query = Timestamp::Milliseconds(since_the_epoch).into_query("inverter_query_time");
+        query = query.add_field("value", ms);
+        query = query.add_field("param_count", param_count as u8);
+
+        match client.query(&query).await {
+            Ok(msg) => debug!("{}: influxdb write success: {:?}", thread_name, msg),
+            Err(e) => error!("<i>{}</>: influxdb write error: <b>{:?}</>", thread_name, e),
+        }
+    }
+
     async fn read_params(
         &mut self,
         mut ctx: Context,
         parameters: &Vec<Parameter>,
     ) -> io::Result<(Context, Vec<Parameter>)> {
+        // connect to influxdb (same "one client per read cycle" approach as sun2000.rs)
+        let client = self
+            .config
+            .influxdb_url
+            .as_ref()
+            .map(|url| Client::new(url, "deye"));
+
         let mut params: Vec<Parameter> = vec![];
         let mut disconnected = false;
         let now = Instant::now();
@@ -554,6 +660,12 @@ impl Deye {
                                     ParamValue::Bool(Some((raw[0] & mask) != 0))
                                 }
                             };
+
+                            //write this parameter to influxdb if configured
+                            if let Some(c) = client.clone() {
+                                Deye::save_to_influxdb(c, &self.config.name, &param).await;
+                            }
+
                             params.push(param);
                         }
                         break;
@@ -591,6 +703,12 @@ impl Deye {
             params.len(),
             elapsed
         );
+
+        //save query time
+        if let Some(c) = client {
+            let ms = (elapsed.as_secs() * 1_000) + (elapsed.subsec_nanos() / 1_000_000) as u64;
+            Deye::save_ms_to_influxdb(c, &self.config.name, ms, params.len()).await;
+        }
 
         Ok((ctx, params))
     }
@@ -730,6 +848,14 @@ impl Deye {
                 Ok(mut ctx) => {
                     info!("<i>{}</>: connected successfully", self.config.name);
                     let mut terminated = false;
+                    // raw "Daily *" register values (all gain=10, i.e. tenths of kWh)
+                    let mut daily_pv_raw: Option<u16> = None;
+                    let mut daily_batt_charge_raw: Option<u16> = None;
+                    let mut daily_batt_discharge_raw: Option<u16> = None;
+                    let mut daily_grid_bought_raw: Option<u16> = None;
+                    let mut daily_grid_sold_raw: Option<u16> = None;
+                    let mut daily_load_raw: Option<u16> = None;
+                    let mut daily_gen_raw: Option<u16> = None;
 
                     loop {
                         if worker_cancel_flag.load(Ordering::SeqCst) {
@@ -739,9 +865,27 @@ impl Deye {
                         if stats_interval.elapsed() > Duration::from_secs_f32(DEYE_STATS_DUMP_INTERVAL_SECS) {
                             stats_interval = Instant::now();
                             info!(
-                                "<i>{}</>: 📊 query statistics: ok: <b>{}</>, errors: <b>{}</>",
-                                self.config.name, self.poll_ok, self.poll_errors
+                                "<i>{}</>: 📊 query statistics: ok: <b>{}</>, errors: <b>{}</>, daily PV yield: <b>{:.1} kWh</>",
+                                self.config.name, self.poll_ok, self.poll_errors,
+                                daily_pv_raw.unwrap_or_default() as f64 / 10.0,
                             );
+
+                            //push all daily energy counters to postgres, natively (own
+                            //table, own channel - does not touch DbTask), if configured.
+                            if let Some(tx) = &self.config.deye_yield_transmitter {
+                                let to_kwh = |raw: Option<u16>| raw.map(|x| x as f64 / 10.0);
+                                let y = DeyeDailyYield {
+                                    pv_yield_kwh: to_kwh(daily_pv_raw),
+                                    battery_charge_kwh: to_kwh(daily_batt_charge_raw),
+                                    battery_discharge_kwh: to_kwh(daily_batt_discharge_raw),
+                                    grid_bought_kwh: to_kwh(daily_grid_bought_raw),
+                                    grid_sold_kwh: to_kwh(daily_grid_sold_raw),
+                                    load_consumption_kwh: to_kwh(daily_load_raw),
+                                    generator_yield_kwh: to_kwh(daily_gen_raw),
+                                };
+                                let _ = tx.send(y);
+                            }
+
                             if terminated { break; }
                         }
 
@@ -759,6 +903,21 @@ impl Deye {
                                 break;
                             } else {
                                 self.poll_ok += 1;
+                            }
+
+                            for p in &params {
+                                if let ParamValue::U16(v) = p.value {
+                                    match p.name {
+                                        DEYE_YIELD_PV => daily_pv_raw = v,
+                                        DEYE_YIELD_BATTERY_CHARGE => daily_batt_charge_raw = v,
+                                        DEYE_YIELD_BATTERY_DISCHARGE => daily_batt_discharge_raw = v,
+                                        DEYE_YIELD_GRID_BOUGHT => daily_grid_bought_raw = v,
+                                        DEYE_YIELD_GRID_SOLD => daily_grid_sold_raw = v,
+                                        DEYE_YIELD_LOAD => daily_load_raw = v,
+                                        DEYE_YIELD_GENERATOR => daily_gen_raw = v,
+                                        _ => {}
+                                    }
+                                }
                             }
 
                             debug!("Query complete, dump results:");

@@ -48,6 +48,8 @@ pub struct Database {
     pub influx_relay_values: HashMap<i32, bool>,
     pub influx_cesspool_level: Option<u8>,
     pub daily_yield_energy: Option<i32>,
+    pub deye_yield_receiver: Receiver<DeyeDailyYield>,
+    pub deye_daily_yield: Option<DeyeDailyYield>,
 }
 
 #[derive(Debug)]
@@ -66,6 +68,17 @@ pub enum CommandCode {
 pub struct DbTask {
     pub command: CommandCode,
     pub value: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DeyeDailyYield {
+    pub pv_yield_kwh: Option<f64>,
+    pub battery_charge_kwh: Option<f64>,
+    pub battery_discharge_kwh: Option<f64>,
+    pub grid_bought_kwh: Option<f64>,
+    pub grid_sold_kwh: Option<f64>,
+    pub load_consumption_kwh: Option<f64>,
+    pub generator_yield_kwh: Option<f64>,
 }
 
 impl Database {
@@ -370,6 +383,14 @@ impl Database {
                 _ => (),
             }
 
+            match self.deye_yield_receiver.try_recv() {
+                Ok(y) => {
+                    debug!("Received DeyeDailyYield: {:?}", y);
+                    self.deye_daily_yield = Some(y);
+                }
+                _ => (),
+            }
+
             //(re)connect / load config when necessary
             if self.conn.is_none() {
                 debug!("Loading db config...");
@@ -426,6 +447,13 @@ impl Database {
                     if let Some(val) = self.daily_yield_energy {
                         if self.update_daily_energy_yield(val as f64 / 100.0) {
                             self.daily_yield_energy = None;
+                        }
+                    }
+
+                    //flush daily energy yield from deye (separate table, native units)
+                    if let Some(y) = self.deye_daily_yield.clone() {
+                        if self.update_deye_daily_energy(&y) {
+                            self.deye_daily_yield = None;
                         }
                     }
 
@@ -491,6 +519,37 @@ impl Database {
             Some(client) => {
                 let query = "select * from daily_energy_yield_upsert($1)";
                 let result = client.execute(query, &[&(value)]);
+                match result {
+                    Ok(_) => {
+                        return true;
+                    }
+                    Err(e) => {
+                        error!("{}: SQL error, query={:?}, error: {}", self.name, query, e);
+                        self.conn = None;
+                    }
+                }
+            }
+            _ => {}
+        }
+        false
+    }
+
+    fn update_deye_daily_energy(&mut self, y: &DeyeDailyYield) -> bool {
+        match self.conn.borrow_mut() {
+            Some(client) => {
+                let query = "select * from deye_daily_energy_upsert($1,$2,$3,$4,$5,$6,$7)";
+                let result = client.execute(
+                    query,
+                    &[
+                        &y.pv_yield_kwh,
+                        &y.battery_charge_kwh,
+                        &y.battery_discharge_kwh,
+                        &y.grid_bought_kwh,
+                        &y.grid_sold_kwh,
+                        &y.load_consumption_kwh,
+                        &y.generator_yield_kwh,
+                    ],
+                );
                 match result {
                     Ok(_) => {
                         return true;
