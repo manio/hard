@@ -661,11 +661,6 @@ impl Deye {
                                 }
                             };
 
-                            //write this parameter to influxdb if configured
-                            if let Some(c) = client.clone() {
-                                Deye::save_to_influxdb(c, &self.config.name, &param).await;
-                            }
-
                             params.push(param);
                         }
                         break;
@@ -696,6 +691,7 @@ impl Deye {
             }
         }
 
+        // measurement of the actual polling cycle ends here.
         let elapsed = now.elapsed();
         debug!(
             "{}: read {} parameters [⏱️ {:?}]",
@@ -704,8 +700,23 @@ impl Deye {
             elapsed
         );
 
-        //save query time
+        // Write everything to influxdb AFTER the measurement, so the 223
+        // sequential HTTP writes no longer inflate `inverter_query_time`.
+        //
+        // NOTE: this is still awaited inline (not tokio::spawn'ed) - the
+        // influxdb crate's HTTP client (surf/hyper) depends on a tokio 0.2
+        // timer context that a freshly spawned task on our tokio runtime
+        // doesn't have ("there is no timer running" panic). So this still
+        // blocks the poll loop for the duration of the writes; it just no
+        // longer gets misreported as Modbus read time. If you want the
+        // writes to be truly non-blocking, look at how DbTask/db_transmitter
+        // (mentioned in the DeyeConfig doc comment) already ships data off
+        // to influx elsewhere in the project - route through that channel
+        // instead of calling client.query() directly here.
         if let Some(c) = client {
+            for param in &params {
+                Deye::save_to_influxdb(c.clone(), &self.config.name, param).await;
+            }
             let ms = (elapsed.as_secs() * 1_000) + (elapsed.subsec_nanos() / 1_000_000) as u64;
             Deye::save_ms_to_influxdb(c, &self.config.name, ms, params.len()).await;
         }
