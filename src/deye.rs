@@ -36,7 +36,7 @@ use tokio_modbus::prelude::*;
 
 pub const DEYE_POLL_INTERVAL_SECS: f32 = 10.0;
 pub const DEYE_STATS_DUMP_INTERVAL_SECS: f32 = 3600.0;
-pub const DEYE_ATTEMPTS_PER_PARAM: u8 = 3;
+pub const DEYE_ATTEMPTS_PER_PARAM: u8 = 7;
 pub const DEYE_MAX_REGS_PER_BLOCK: u16 = 64;
 /// Names of the daily energy counters pushed to Postgres each stats-dump
 /// interval via a dedicated Sender<DeyeDailyYield> channel (see
