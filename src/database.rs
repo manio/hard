@@ -73,6 +73,7 @@ pub struct DbTask {
 #[derive(Debug, Clone, Default)]
 pub struct DeyeDailyYield {
     pub pv_yield_kwh: Option<f64>,
+    pub pv_total_kwh: Option<f64>,
     pub battery_charge_kwh: Option<f64>,
     pub battery_discharge_kwh: Option<f64>,
     pub grid_bought_kwh: Option<f64>,
@@ -537,11 +538,12 @@ impl Database {
     fn update_deye_daily_energy(&mut self, y: &DeyeDailyYield) -> bool {
         match self.conn.borrow_mut() {
             Some(client) => {
-                let query = "select * from deye_daily_energy_upsert($1,$2,$3,$4,$5,$6,$7)";
+                let query = "select * from deye_daily_energy_upsert($1,$2,$3,$4,$5,$6,$7,$8)";
                 let result = client.execute(
                     query,
                     &[
                         &y.pv_yield_kwh,
+                        &y.pv_total_kwh,
                         &y.battery_charge_kwh,
                         &y.battery_discharge_kwh,
                         &y.grid_bought_kwh,

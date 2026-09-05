@@ -43,6 +43,7 @@ pub const DEYE_MAX_REGS_PER_BLOCK: u16 = 64;
 /// DeyeConfig::deye_yield_transmitter) into the deye_daily_energy
 /// table/function - independent from sun2000's DbTask/CommandCode.
 pub const DEYE_YIELD_PV: &str = "Daily PV Production";
+pub const DEYE_YIELD_PV_TOTAL: &str = "Total PV Production";
 pub const DEYE_YIELD_BATTERY_CHARGE: &str = "Daily Battery Charge";
 pub const DEYE_YIELD_BATTERY_DISCHARGE: &str = "Daily Battery Discharge";
 pub const DEYE_YIELD_GRID_BOUGHT: &str = "Daily Energy Bought";
@@ -909,6 +910,8 @@ impl Deye {
                     let mut terminated = false;
                     // raw "Daily *" register values (all gain=10, i.e. tenths of kWh)
                     let mut daily_pv_raw: Option<u16> = None;
+                    // "Total PV Production" is a 32-bit counter (registers 534-535, gain=10)
+                    let mut total_pv_raw: Option<u32> = None;
                     let mut daily_batt_charge_raw: Option<u16> = None;
                     let mut daily_batt_discharge_raw: Option<u16> = None;
                     let mut daily_grid_bought_raw: Option<u16> = None;
@@ -924,17 +927,20 @@ impl Deye {
                         if stats_interval.elapsed() > Duration::from_secs_f32(DEYE_STATS_DUMP_INTERVAL_SECS) {
                             stats_interval = Instant::now();
                             info!(
-                                "<i>{}</>: 📊 query statistics: ok: <b>{}</>, errors: <b>{}</>, daily PV yield: <b>{:.1} kWh</>",
+                                "<i>{}</>: 📊 query statistics: ok: <b>{}</>, errors: <b>{}</>, daily PV yield: <b>{:.1} kWh</>, total PV production: <b>{:.1} kWh</>",
                                 self.config.name, self.poll_ok, self.poll_errors,
                                 daily_pv_raw.unwrap_or_default() as f64 / 10.0,
+                                total_pv_raw.unwrap_or_default() as f64 / 10.0,
                             );
 
                             //push all daily energy counters to postgres, natively (own
                             //table, own channel - does not touch DbTask), if configured.
                             if let Some(tx) = &self.config.deye_yield_transmitter {
                                 let to_kwh = |raw: Option<u16>| raw.map(|x| x as f64 / 10.0);
+                                let to_kwh32 = |raw: Option<u32>| raw.map(|x| x as f64 / 10.0);
                                 let y = DeyeDailyYield {
                                     pv_yield_kwh: to_kwh(daily_pv_raw),
+                                    pv_total_kwh: to_kwh32(total_pv_raw),
                                     battery_charge_kwh: to_kwh(daily_batt_charge_raw),
                                     battery_discharge_kwh: to_kwh(daily_batt_discharge_raw),
                                     grid_bought_kwh: to_kwh(daily_grid_bought_raw),
@@ -975,6 +981,10 @@ impl Deye {
                                         DEYE_YIELD_LOAD => daily_load_raw = v,
                                         DEYE_YIELD_GENERATOR => daily_gen_raw = v,
                                         _ => {}
+                                    }
+                                } else if let ParamValue::U32(v) = p.value {
+                                    if p.name == DEYE_YIELD_PV_TOTAL {
+                                        total_pv_raw = v;
                                     }
                                 }
                             }
