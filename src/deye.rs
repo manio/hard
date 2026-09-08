@@ -907,6 +907,70 @@ impl Deye {
                         time_synced = true;
                     }
 
+                    //one-time inverter info banner, read right after every successful
+                    //(re)connect - mirrors what sun2000.rs does for model_name /
+                    //serial_number / rated_power. Additionally decodes the HMI/MAIN
+                    //firmware version strings the way the manufacturer's own app shows
+                    //them (confirmed against a real inverter):
+                    //  HMI  = hex(Comm Board FW raw17)-hex(Comm Board FW raw18)
+                    //  MAIN = hex(Ctrl Board FW raw14)-hex(Ctrl Board FW raw15)-hex(Ctrl Board FW raw11)
+                    {
+                        let device_params: Vec<Parameter> = Deye::param_table()
+                            .into_iter()
+                            .filter(|p| p.category == Category::Device && p.address <= 21)
+                            .collect();
+                        let (new_ctx, params) = self.read_params(ctx, &device_params).await?;
+                        ctx = new_ctx;
+
+                        let u16_of = |name: &str| -> u16 {
+                            params
+                                .iter()
+                                .find(|p| p.name == name)
+                                .and_then(|p| match &p.value {
+                                    ParamValue::U16(v) => *v,
+                                    _ => None,
+                                })
+                                .unwrap_or_default()
+                        };
+                        let text_of = |name: &str| -> String {
+                            params
+                                .iter()
+                                .find(|p| p.name == name)
+                                .map(|p| p.get_text_value())
+                                .unwrap_or_default()
+                        };
+
+                        let device_type = u16_of("Device Type");
+                        let modbus_addr = u16_of("Device Modbus Address");
+                        let protocol_version = u16_of("Device Protocol Version");
+                        let serial_number = text_of("Device Serial Number");
+                        let mcu_board_version = u16_of("Device MCU Board Version");
+                        let ctrl_fw_11 = u16_of("Device Control Board Firmware Raw 11");
+                        let arc_fw = u16_of("Device Arc Board Firmware Version");
+                        let slave_mcu = u16_of("Device Slave MCU Version");
+                        let ctrl_fw_14 = u16_of("Device Control Board Firmware Raw 14");
+                        let ctrl_fw_15 = u16_of("Device Control Board Firmware Raw 15");
+                        let comm_fw_16 = u16_of("Device Communication Board Firmware Raw 16");
+                        let comm_fw_17 = u16_of("Device Communication Board Firmware Raw 17");
+                        let comm_fw_18 = u16_of("Device Communication Board Firmware Raw 18");
+                        let rated_power = text_of("Device Rated Power");
+
+                        let hmi_version = format!("{:04X}-{:04X}", comm_fw_17, comm_fw_18);
+                        let main_version =
+                            format!("{:04X}-{:04X}-{:04X}", ctrl_fw_14, ctrl_fw_15, ctrl_fw_11);
+
+                        info!("<i>{}</>: ⚡ inverter info:", self.config.name);
+                        info!("<i>{}</>:   Inverter SN: <b><cyan>{}</>", self.config.name, serial_number);
+                        info!("<i>{}</>:   HMI: <b><cyan>Ver {}</>", self.config.name, hmi_version);
+                        info!("<i>{}</>:   MAIN: <b><cyan>{}</>", self.config.name, main_version);
+                        info!("<i>{}</>:   Rated power: <b><cyan>{} W</>", self.config.name, rated_power);
+                        debug!(
+                            "<i>{}</>: device raw regs: type={}, modbus_addr={}, protocol_ver={}, mcu_board={}, arc_fw={:#06x}, slave_mcu={}, comm_fw16={:#06x}",
+                            self.config.name, device_type, modbus_addr, protocol_version,
+                            mcu_board_version, arc_fw, slave_mcu, comm_fw_16
+                        );
+                    }
+
                     let mut terminated = false;
                     // raw "Daily *" register values (all gain=10, i.e. tenths of kWh)
                     let mut daily_pv_raw: Option<u16> = None;
