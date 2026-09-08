@@ -958,16 +958,20 @@ impl Deye {
                         let hmi_version = format!("{:04X}-{:04X}", comm_fw_17, comm_fw_18);
                         let main_version =
                             format!("{:04X}-{:04X}-{:04X}", ctrl_fw_14, ctrl_fw_15, ctrl_fw_11);
+                        // ARC = hex(Arc Board Firmware Version), no separator - matches the
+                        // manufacturer's own "VerD20A"-style display.
+                        let arc_version = format!("{:04X}", arc_fw);
 
                         info!("<i>{}</>: ⚡ inverter info:", self.config.name);
                         info!("<i>{}</>:   Inverter SN: <b><cyan>{}</>", self.config.name, serial_number);
                         info!("<i>{}</>:   HMI: <b><cyan>Ver {}</>", self.config.name, hmi_version);
                         info!("<i>{}</>:   MAIN: <b><cyan>{}</>", self.config.name, main_version);
+                        info!("<i>{}</>:   ARC: <b><cyan>Ver{}</>", self.config.name, arc_version);
                         info!("<i>{}</>:   Rated power: <b><cyan>{} W</>", self.config.name, rated_power);
                         debug!(
-                            "<i>{}</>: device raw regs: type={}, modbus_addr={}, protocol_ver={}, mcu_board={}, arc_fw={:#06x}, slave_mcu={}, comm_fw16={:#06x}",
+                            "<i>{}</>: device raw regs: type={}, modbus_addr={}, protocol_ver={}, mcu_board={}, slave_mcu={}, comm_fw16={:#06x}",
                             self.config.name, device_type, modbus_addr, protocol_version,
-                            mcu_board_version, arc_fw, slave_mcu, comm_fw_16
+                            mcu_board_version, slave_mcu, comm_fw_16
                         );
                     }
 
