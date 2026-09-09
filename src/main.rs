@@ -375,14 +375,19 @@ async fn main() {
     }
     //wait for tokio async tasks
     let mut cnt = 2;
-    while let f = futures.join_next() {
-        if let Err(r) = tokio::time::timeout(Duration::from_secs(10), f).await {
-            cnt = cnt - 1;
-            if cnt == 0 {
-                error!("Unable to gracefully stop all tasks, forcing stop...");
-                break;
-            };
-            warn!("Still waiting for task(s) to stop...");
+    loop {
+        match tokio::time::timeout(Duration::from_secs(10), futures.join_next()).await {
+            Ok(None) => break,       // JoinSet is empty - done, exit immediately
+            Ok(Some(_)) => continue, // one task has finished, move on to the next one
+            Err(_) => {
+                // timeout - nothing finished within 10s
+                cnt -= 1;
+                if cnt == 0 {
+                    error!("Unable to gracefully stop all tasks, forcing stop...");
+                    break;
+                }
+                warn!("Still waiting for task(s) to stop...");
+            }
         }
     }
 
