@@ -18,7 +18,6 @@ use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
-use tokio_compat_02::FutureExt;
 
 pub const SKYMAX_POLL_INTERVAL_SECS: f32 = 10.0; //secs between polling
 pub const SKYMAX_STATS_DUMP_INTERVAL_SECS: f32 = 3600.0; //secs between showing stats
@@ -580,11 +579,8 @@ impl Skymax {
                                                     //write data to influxdb if configured
                                                     match &self.influxdb_url {
                                                         Some(url) => {
-                                                            // By calling compat on the async function, everything inside it is able
-                                                            // to use Tokio 0.2 features.
                                                             let _ = parameters
                                                                 .save_to_influxdb(url, &self.name)
-                                                                .compat()
                                                                 .await;
                                                         }
                                                         None => (),

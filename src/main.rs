@@ -24,7 +24,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tokio::task;
 use tokio::task::JoinSet;
-use tokio_compat_02::FutureExt;
 
 mod database;
 mod deye;
@@ -296,7 +295,7 @@ async fn main() {
                 battery_installed: get_config_bool("battery_installed", Some("sun2000")),
                 dongle_connection: get_config_bool("dongle_connection", Some("sun2000")),
             };
-            let sun2000_future = async move { sun2000.worker(worker_cancel_flag).compat().await };
+            let sun2000_future = async move { sun2000.worker(worker_cancel_flag).await };
             futures.spawn(sun2000_future);
         }
         _ => {}
@@ -315,7 +314,7 @@ async fn main() {
                 influxdb_url: influxdb_url.clone(),
             });
             info!("config = {:?}", deye);
-            let deye_future = async move { deye.worker(worker_cancel_flag).compat().await };
+            let deye_future = async move { deye.worker(worker_cancel_flag).await };
             futures.spawn(deye_future);
         }
         _ => {}

@@ -2,7 +2,7 @@
 name = "hard"
 version = "0.1.0"
 authors = ["Mariusz Białończyk <manio@skyboo.net>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -22,9 +22,8 @@ evdev = { version = "0.12.1", features = ["tokio"] }
 futures = "0.3"
 tokio = { version = "1.31.0", features = ["full"] }
 crc16 = "0.4.0"
-influxdb = { version = "0.3.0", features = ["derive"] }
+influxdb = { version = "0.7", default-features = false, features = ["derive", "use-serde", "reqwest-client-rustls"] }
 chrono = { version = "0.4.11", features = ["serde"] }
-tokio-compat-02 = "0.1"
 humantime = "2.0.1"
 tokio-modbus = { version = "0.5.2", default-features = false, features = ["tcp"] }
 reqwest = { version = "0.11", features = ["blocking"] }

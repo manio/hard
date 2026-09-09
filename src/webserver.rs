@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio_compat_02::FutureExt;
 
 use crate::database::{CommandCode, DbTask};
 use crate::onewire::{OneWireTask, TaskCommand};
@@ -88,7 +87,6 @@ impl WebServer {
                 .mount("/cmd", routes![hello, reload, fan_on, fan_off])
                 .manage(transmitters.clone())
                 .launch()
-                .compat()
                 .await;
             result.expect("server failed unexpectedly");
 

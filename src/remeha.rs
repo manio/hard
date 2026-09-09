@@ -13,7 +13,6 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
-use tokio_compat_02::FutureExt;
 
 pub const REMEHA_POLL_INTERVAL_SECS: f32 = 5.0; //secs between polling
 pub const REMEHA_STATS_DUMP_INTERVAL_SECS: f32 = 3600.0; //secs between showing stats
@@ -602,11 +601,8 @@ impl Remeha {
                                             //write data to influxdb if configured
                                             match &self.influxdb_url {
                                                 Some(url) => {
-                                                    // By calling compat on the async function, everything inside it is able
-                                                    // to use Tokio 0.2 features.
                                                     let _ = sample
                                                         .save_to_influxdb(url, &self.display_name)
-                                                        .compat()
                                                         .await;
                                                 }
                                                 None => (),

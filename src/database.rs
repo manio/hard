@@ -19,7 +19,6 @@ use influxdb::{Client, Timestamp};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tokio_compat_02::FutureExt;
 
 // Just a generic Result type to ease error handling for us. Errors in multithreaded
 // async contexts needs some extra restrictions
@@ -468,7 +467,7 @@ impl Database {
                 && influx_interval.elapsed().as_secs() > 10
             {
                 debug!("flushing sensor counters to influxdb...");
-                let _ = self.influx_flush_counter_data().compat().await;
+                let _ = self.influx_flush_counter_data().await;
                 influx_interval = Instant::now();
             }
             //write monitored sensor/relay values to influxdb
@@ -476,14 +475,14 @@ impl Database {
                 && (!self.influx_sensor_values.is_empty() || !self.influx_relay_values.is_empty())
             {
                 debug!("flushing sensor/relay values to influxdb...");
-                let _ = self.influx_flush_values_data().compat().await;
+                let _ = self.influx_flush_values_data().await;
             }
             //write cesspool level to postgres & influxdb
             if self.influxdb_url.is_some() && self.influx_cesspool_level.is_some() {
                 debug!("flushing cesspool level to postgres...");
                 self.pg_update_cesspool_level(self.influx_cesspool_level.unwrap() as i16);
                 debug!("flushing cesspool level to influxdb...");
-                let _ = self.influx_flush_cesspool_level().compat().await;
+                let _ = self.influx_flush_cesspool_level().await;
             }
 
             tokio::time::sleep(Duration::from_millis(50)).await;
