@@ -2,8 +2,8 @@ use evdev::Key;
 use simplelog::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::thread;
 use std::time::Duration;
+use tokio::time::sleep;
 
 // Just a generic Result type to ease error handling for us. Errors in multithreaded
 // async contexts needs some extra restrictions
@@ -22,6 +22,11 @@ pub struct Rfid {
     pub rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
 }
 
+/// How often we wake up (when nothing is happening on evdev) to check
+/// worker_cancel_flag again. This ensures that shutdown never waits longer
+/// than roughly this amount of time, even if no one is scanning a card.
+const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
 impl Rfid {
     pub fn push_tag_upstream(&self, tag: u32) -> bool {
         match self.rfid_pending_tags.write() {
@@ -32,6 +37,23 @@ impl Rfid {
             Err(_) => false,
         }
     }
+
+    /// Equivalent to thread::sleep(total), but non-blocking (tokio::time::sleep)
+    /// and interruptible every CANCEL_POLL_INTERVAL if worker_cancel_flag is set.
+    /// Returns false if the sleep was interrupted by a cancellation request.
+    async fn cancellable_sleep(total: Duration, worker_cancel_flag: &Arc<AtomicBool>) -> bool {
+        let mut remaining = total;
+        while remaining > Duration::ZERO {
+            if worker_cancel_flag.load(Ordering::SeqCst) {
+                return false;
+            }
+            let step = remaining.min(CANCEL_POLL_INTERVAL);
+            sleep(step).await;
+            remaining = remaining.saturating_sub(step);
+        }
+        !worker_cancel_flag.load(Ordering::SeqCst)
+    }
+
     pub async fn worker(&self, worker_cancel_flag: Arc<AtomicBool>) -> Result<()> {
         info!("{}: Starting task", self.name);
         let mut terminated = false;
@@ -64,7 +86,17 @@ impl Rfid {
                             break;
                         }
 
-                        let ev = events.next_event().await?;
+                        // Race next_event() against a short timer: if no card is
+                        // scanned, we still return to the top of the loop every
+                        // CANCEL_POLL_INTERVAL and check worker_cancel_flag instead
+                        // of waiting indefinitely on the .await in next_event().
+                        let ev = tokio::select! {
+                            ev = events.next_event() => ev?,
+                            _ = sleep(CANCEL_POLL_INTERVAL) => {
+                                continue;
+                            }
+                        };
+
                         /* ev.value=1 is for key_down */
                         if ev.event_type() == evdev::EventType::KEY && ev.value() == 1 {
                             debug!("{}: got event: {:?}", self.name, ev);
@@ -134,12 +166,15 @@ impl Rfid {
                             _ => {}
                         }
 
-                        thread::sleep(Duration::from_millis(30));
+                        sleep(Duration::from_millis(30)).await;
                     }
                 }
                 None => {
                     error!("{}: device not found", self.name);
-                    thread::sleep(Duration::from_secs(10));
+                    if !Self::cancellable_sleep(Duration::from_secs(10), &worker_cancel_flag).await
+                    {
+                        terminated = true;
+                    }
                 }
             }
         }
