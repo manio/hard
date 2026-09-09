@@ -101,7 +101,7 @@ fn logging_init() {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     env::set_var("RUST_BACKTRACE", "full");
     let started = Instant::now();
