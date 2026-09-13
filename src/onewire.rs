@@ -15,6 +15,7 @@ use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::mem;
 use std::net::TcpStream;
 use std::ops::Add;
 use std::path::Path;
@@ -23,6 +24,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+// Same generic error type as used in database.rs's `Result<T>` alias --
+// needed so that OneWire::worker()'s future has the same Output type as the
+// other workers spawned into the same tokio JoinSet in main.rs. Named
+// differently (not `Result`) so it doesn't shadow the two-parameter
+// std::result::Result used elsewhere in this file (e.g. serde's serializers).
+type WorkerError = Box<dyn std::error::Error + Send + Sync>;
 
 //family codes for devices
 pub const FAMILY_CODE_DS2413: u8 = 0x3a;
@@ -77,6 +85,59 @@ pub struct OneWireTask {
     pub tag_group: Option<String>,
     pub id_yeelight: Option<i32>,
     pub duration: Option<Duration>,
+}
+
+//plain data rows loaded from the database, carried over a channel to the
+//onewire coordinator task. Using plain structs here (instead of sharing
+//SensorDevices/RelayDevices/Relays behind a lock) means the coordinator is
+//the sole owner of its runtime state; the database task only ever *sends*
+//a fresh snapshot, it never touches the live state directly.
+#[derive(Clone)]
+pub struct SensorRow {
+    pub id_sensor: i32,
+    pub id_kind: i32,
+    pub name: String,
+    pub family_code: Option<i16>,
+    pub address: u64,
+    pub bit: u8,
+    pub associated_relays: Vec<i32>,
+    pub associated_yeelights: Vec<i32>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct RelayRow {
+    pub id_relay: i32,
+    pub name: String,
+    pub family_code: Option<i16>,
+    pub address: u64,
+    pub bit: u8,
+    pub pir_exclude: bool,
+    pub pir_hold_secs: Option<f32>,
+    pub switch_hold_secs: Option<f32>,
+    pub initial_state: bool,
+    pub pir_all_day: bool,
+    pub tags: Vec<String>,
+}
+
+#[derive(Clone)]
+pub struct YeelightRow {
+    pub id_yeelight: i32,
+    pub name: String,
+    pub ip_address: String,
+    pub pir_exclude: bool,
+    pub pir_hold_secs: Option<f32>,
+    pub switch_hold_secs: Option<f32>,
+    pub pir_all_day: bool,
+    pub tags: Vec<String>,
+}
+
+pub struct DeviceReloadData {
+    pub kinds: HashMap<i32, String>,
+    pub sensors: Vec<SensorRow>,
+    pub relays: Vec<RelayRow>,
+    pub yeelights: Vec<YeelightRow>,
+    pub rfid_tags: Vec<RfidTag>,
 }
 
 pub fn get_w1_device_name(family_code: u8, address: u64) -> String {
@@ -367,7 +428,10 @@ trait OnOff {
         &mut self,
         op: Operation,
         index: Option<usize>,
-        onewire: Option<&OneWire>,
+        //only needed by Yeelight, to report a db counter increment -- passing
+        //the transmitter directly means this trait no longer needs to know
+        //about the whole OneWire struct
+        db_transmitter: Option<&Sender<DbTask>>,
         dev: &mut Device,
     );
     fn sensor_trigger(
@@ -375,7 +439,7 @@ trait OnOff {
         device: &mut Device,
         index: Option<usize>,
         state_machine: &mut StateMachine,
-        onewire: Option<&OneWire>,
+        db_transmitter: Option<&Sender<DbTask>>,
         associated_devices: &Vec<i32>,
         kind_code: &str,
         on: bool,
@@ -402,7 +466,7 @@ trait OnOff {
                         currently_off,
                         None,
                     ) {
-                        self.set_new_value(Operation::On, index, onewire, device);
+                        self.set_new_value(Operation::On, index, db_transmitter, device);
                     }
                 }
                 "Switch" => {
@@ -414,7 +478,7 @@ trait OnOff {
                         currently_off,
                         None,
                     ) {
-                        self.set_new_value(Operation::Toggle, index, onewire, device);
+                        self.set_new_value(Operation::Toggle, index, db_transmitter, device);
                     }
                 }
                 _ => (),
@@ -531,7 +595,7 @@ impl OnOff for RelayBoard {
         &mut self,
         op: Operation,
         index: Option<usize>,
-        _onewire: Option<&OneWire>,
+        _db_transmitter: Option<&Sender<DbTask>>,
         _dev: &mut Device,
     ) {
         let mut new_state: u8 = self.get_actual_state();
@@ -708,7 +772,7 @@ impl OnOff for Yeelight {
         &mut self,
         op: Operation,
         _index: Option<usize>,
-        onewire: Option<&OneWire>,
+        db_transmitter: Option<&Sender<DbTask>>,
         dev: &mut Device,
     ) {
         let new_state = match op {
@@ -718,7 +782,7 @@ impl OnOff for Yeelight {
         };
         self.turn_on_off(new_state, dev);
         dev.last_toggled = Some(Instant::now());
-        onewire.unwrap().increment_yeelight_counter(self.id);
+        increment_yeelight_counter(db_transmitter.unwrap(), self.id);
     }
 }
 
@@ -1024,7 +1088,7 @@ impl RelayDevices {
         &mut self,
         relays: &mut Vec<Device>,
         state_machine: &mut StateMachine,
-        onewire: &OneWire,
+        db_transmitter: &Sender<DbTask>,
         associated_yeelights: &Vec<i32>,
         kind_code: &str,
         on: bool,
@@ -1038,7 +1102,7 @@ impl RelayDevices {
                         dev,
                         None,
                         state_machine,
-                        Some(onewire),
+                        Some(db_transmitter),
                         associated_yeelights,
                         kind_code,
                         on,
@@ -1096,7 +1160,7 @@ pub struct StateMachine {
     pub wicket_gate_delay: Option<Duration>,
     pub wicket_gate_relays: Vec<i32>,
     pub ethlcd: Option<EthLcd>,
-    pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
+    pub rfid_tags: Vec<RfidTag>,
     pub rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
     pub cesspool_level: CesspoolLevel,
     pub lcd_transmitter: Sender<LcdTask>,
@@ -1359,13 +1423,15 @@ impl StateMachine {
     }
 
     fn process_rfid_tags(&mut self, pending_tasks: &mut Vec<OneWireTask>, night: bool) {
-        let rfid_tags = self.rfid_tags.read().unwrap();
+        //rfid_tags is now owned directly (updated on reload from the database
+        //task), only rfid_pending_tags (written by the rfid thread) still
+        //needs a lock since it has a different, independent owner
         let mut rfid_pending_tags = self.rfid_pending_tags.write().unwrap();
         if !rfid_pending_tags.is_empty() {
             //todo
             for id in rfid_pending_tags.iter() {
                 debug!("{}: rfid_pending_tags: {:?}", self.name, id);
-                for rfid_tag in rfid_tags.iter().find(|&x| x.id_tag as u32 == *id) {
+                for rfid_tag in self.rfid_tags.iter().find(|&x| x.id_tag as u32 == *id) {
                     info!("{}: 🆔 matched rfid_tag: {:?}", self.name, rfid_tag.name);
 
                     if !rfid_tag.tags.is_empty() {
@@ -1453,55 +1519,630 @@ pub struct OneWire {
     pub transmitter: Sender<DbTask>,
     pub ow_receiver: Receiver<OneWireTask>,
     pub lcd_transmitter: Sender<LcdTask>,
-    pub sensor_devices: Arc<RwLock<SensorDevices>>,
-    pub relay_devices: Arc<RwLock<RelayDevices>>,
-    pub relays: Arc<RwLock<Relays>>,
+    pub reload_receiver: Receiver<DeviceReloadData>,
+    //owned directly: this coordinator task is the sole owner/mutator of all
+    //three, so no lock is needed at all (the database task only ever *sends*
+    //a fresh snapshot over reload_receiver, it never touches these directly)
+    pub sensor_devices: SensorDevices,
+    pub relay_devices: RelayDevices,
+    pub relays: Relays,
+}
+
+fn increment_relay_counter(transmitter: &Sender<DbTask>, id_relay: i32) {
+    let task = DbTask {
+        command: CommandCode::IncrementRelayCounter,
+        value: Some(id_relay),
+    };
+    let _ = transmitter.send(task);
+}
+
+fn increment_yeelight_counter(transmitter: &Sender<DbTask>, id_yeelight: i32) {
+    let task = DbTask {
+        command: CommandCode::IncrementYeelightCounter,
+        value: Some(id_yeelight),
+    };
+    let _ = transmitter.send(task);
+}
+
+fn load_geolocation_config(lat: &mut f64, lon: &mut f64) {
+    let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
+    let section = conf
+        .section(Some("general".to_owned()))
+        .expect("Cannot find general section in config");
+    *lat = section
+        .get("lat")
+        .unwrap_or(&"0.0".to_owned())
+        .parse()
+        .unwrap_or_default();
+    *lon = section
+        .get("lon")
+        .unwrap_or(&"0.0".to_owned())
+        .parse()
+        .unwrap_or_default();
+}
+
+//apply a fresh device list loaded from the database. This fully replaces
+//kinds/sensor_boards and yeelights, while add_relay()/add_yeelight()
+//internally preserve override_mode/last_toggled/stop_after for relays that
+//still exist after the reload (unchanged logic, see RelayDevices::add_relay).
+//Note: relay_boards themselves are intentionally NOT cleared here, matching
+//the original database.rs behavior (a board no longer present in the DB is
+//simply left in place / overwritten, never pruned).
+fn apply_reload(
+    sensor_devices: &mut SensorDevices,
+    relay_devices: &mut RelayDevices,
+    relays: &mut Relays,
+    state_machine: &mut StateMachine,
+    data: DeviceReloadData,
+    name: &str,
+) {
+    info!("{}: applying reloaded device configuration", name);
+
+    sensor_devices.kinds = data.kinds;
+    sensor_devices.sensor_boards.clear();
+    for row in data.sensors {
+        sensor_devices.add_sensor(
+            row.id_sensor,
+            row.id_kind,
+            row.name,
+            row.family_code,
+            row.address,
+            row.bit,
+            row.associated_relays,
+            row.associated_yeelights,
+            row.tags,
+        );
+    }
+
+    for row in data.relays {
+        relay_devices.add_relay(
+            &mut relays.relay,
+            row.id_relay,
+            row.name,
+            row.family_code,
+            row.address,
+            row.bit,
+            row.pir_exclude,
+            row.pir_hold_secs,
+            row.switch_hold_secs,
+            row.initial_state,
+            row.pir_all_day,
+            row.tags,
+        );
+    }
+
+    relay_devices.yeelight.clear();
+    for row in data.yeelights {
+        relay_devices.add_yeelight(
+            &mut relays.relay,
+            row.id_yeelight,
+            row.name,
+            row.ip_address,
+            row.pir_exclude,
+            row.pir_hold_secs,
+            row.switch_hold_secs,
+            row.pir_all_day,
+            row.tags,
+        );
+    }
+
+    state_machine.rfid_tags = data.rfid_tags;
+}
+
+//Poll all sensor boards for changes. The blocking sysfs reads (and the
+//mandatory small delay between them, required by the w1 bus) run on a
+//dedicated blocking-pool thread via spawn_blocking, so they can never stall
+//this task's own progress or any other task sharing the same tokio runtime.
+//Nothing here needs a lock: sensor_devices/relay_devices/relays are owned
+//solely by the coordinator loop that calls this function.
+async fn poll_sensors(
+    sensor_devices: &mut SensorDevices,
+    relay_devices: &mut RelayDevices,
+    relays: &mut Relays,
+    state_machine: &mut StateMachine,
+    transmitter: &Sender<DbTask>,
+    pending_tasks: &mut Vec<OneWireTask>,
+    night: bool,
+    name: &str,
+) {
+    if sensor_devices.sensor_boards.is_empty() {
+        //nothing to poll yet (e.g. before the first device reload arrives)
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        return;
+    }
+
+    let mut boards = mem::take(&mut sensor_devices.sensor_boards);
+    let (boards, changes) = tokio::task::spawn_blocking(move || {
+        let mut changes = Vec::new();
+        for (idx, sb) in boards.iter_mut().enumerate() {
+            if let Some(new_value) = sb.read_state() {
+                if sb.last_value != Some(new_value) {
+                    changes.push((idx, sb.last_value, new_value));
+                    sb.last_value = Some(new_value);
+                }
+            }
+            //mandatory small delay between consecutive w1 bus reads (hardware requirement)
+            thread::sleep(Duration::from_micros(500));
+        }
+        (boards, changes)
+    })
+    .await
+    .expect("sensor polling task panicked");
+
+    sensor_devices.sensor_boards = boards;
+
+    if changes.is_empty() {
+        return;
+    }
+
+    let kinds_cloned = sensor_devices.kinds.clone();
+    let bits = [0u8, 2u8];
+
+    for (idx, last_value, new_value) in changes {
+        let (ow_family, ow_address) = {
+            let sb = &sensor_devices.sensor_boards[idx];
+            (sb.ow_family, sb.ow_address)
+        };
+
+        match last_value {
+            Some(last_value) => {
+                debug!(
+                    "{}: change detected, old: {:#04x} new: {:#04x}",
+                    get_w1_device_name(ow_family, ow_address),
+                    last_value,
+                    new_value
+                );
+
+                for bit in &bits {
+                    if new_value & (1 << bit) != last_value & (1 << bit) {
+                        let (pio_name, sensor_clone) = {
+                            let sb = &sensor_devices.sensor_boards[idx];
+                            let sensor_opt = if *bit == 0 { &sb.pio_a } else { &sb.pio_b };
+                            let pio_name = if *bit == 0 { "PIOA" } else { "PIOB" };
+                            (
+                                pio_name,
+                                sensor_opt.as_ref().map(|s| {
+                                    (
+                                        s.id_sensor,
+                                        s.id_kind,
+                                        s.name.clone(),
+                                        s.tags.clone(),
+                                        s.associated_relays.clone(),
+                                        s.associated_yeelights.clone(),
+                                    )
+                                }),
+                            )
+                        };
+
+                        if let Some((
+                            sensor_id,
+                            id_kind,
+                            sensor_name,
+                            sensor_tags,
+                            associated_relays,
+                            associated_yeelights,
+                        )) = sensor_clone
+                        {
+                            let task = DbTask {
+                                command: CommandCode::IncrementSensorCounter,
+                                value: Some(sensor_id),
+                            };
+                            let _ = transmitter.send(task);
+
+                            let kind_code = kinds_cloned.get(&id_kind).unwrap().clone();
+                            let on: bool = new_value & (1 << bit) != 0;
+
+                            let stop_processing = !state_machine.sensor_hook(
+                                &kind_code,
+                                &sensor_name,
+                                on,
+                                &sensor_tags,
+                                night,
+                                false,
+                                pending_tasks,
+                                sensor_id,
+                            );
+                            info!(
+                                    "<green>{}</>: <b>{}</> <cyan>(</><magenta>sensor:{}|{}</><cyan>)</>, value: {:#04x}, {}</>{}",
+                                    kind_code,
+                                    sensor_name,
+                                    get_w1_device_name(ow_family, ow_address),
+                                    pio_name,
+                                    new_value,
+                                    { if on { "<bold><green>active" } else { "<bright-black>inactive" } },
+                                    { if stop_processing { ", <yellow>stopped processing</>" } else { "" } },
+                                );
+                            if stop_processing {
+                                continue;
+                            }
+
+                            if !associated_relays.is_empty() {
+                                relay_devices.relay_sensor_trigger(
+                                    &mut relays.relay,
+                                    state_machine,
+                                    &associated_relays,
+                                    &kind_code,
+                                    on,
+                                    night,
+                                );
+                            }
+
+                            if !associated_yeelights.is_empty() {
+                                relay_devices.yeelight_sensor_trigger(
+                                    &mut relays.relay,
+                                    state_machine,
+                                    transmitter,
+                                    &associated_yeelights,
+                                    &kind_code,
+                                    on,
+                                    night,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                //flush any relay boards that got a pending write from the triggers above
+                for rb in &mut relay_devices.relay_boards {
+                    if let Some(new_value) = rb.new_value {
+                        let old_value = rb.last_value.unwrap_or(DS2408_INITIAL_STATE);
+                        if new_value != old_value {
+                            for i in 0..=7 {
+                                if new_value & (1 << i as u8) != old_value & (1 << i as u8) {
+                                    if let Some(id) = rb.relay[i] {
+                                        if let Some(relay) =
+                                            relays.relay.iter_mut().find(|r| r.id == id)
+                                        {
+                                            relay.last_toggled = Some(Instant::now());
+                                            increment_relay_counter(transmitter, id);
+                                        }
+                                    }
+                                }
+                            }
+                            rb.save_state();
+                        }
+                    }
+                }
+            }
+            None => {
+                //sensor read for the very first time
+                debug!(
+                    "{}: setting initial sensorboard value {:#04x}",
+                    get_w1_device_name(ow_family, ow_address),
+                    new_value
+                );
+                for bit in &bits {
+                    let (pio_name, sensor_clone) = {
+                        let sb = &sensor_devices.sensor_boards[idx];
+                        let sensor_opt = if *bit == 0 { &sb.pio_a } else { &sb.pio_b };
+                        let pio_name = if *bit == 0 { "PIOA" } else { "PIOB" };
+                        (
+                            pio_name,
+                            sensor_opt
+                                .as_ref()
+                                .map(|s| (s.id_sensor, s.id_kind, s.name.clone(), s.tags.clone())),
+                        )
+                    };
+
+                    if let Some((sensor_id, id_kind, sensor_name, sensor_tags)) = sensor_clone {
+                        let kind_code = kinds_cloned.get(&id_kind).unwrap().clone();
+                        let on: bool = new_value & (1 << bit) != 0;
+
+                        let _ = !state_machine.sensor_hook(
+                            &kind_code,
+                            &sensor_name,
+                            on,
+                            &sensor_tags,
+                            night,
+                            true,
+                            pending_tasks,
+                            sensor_id,
+                        );
+                        debug!(
+                            "initial state: {}: [{} {} {}]: {:#04x} on: {}",
+                            kind_code,
+                            get_w1_device_name(ow_family, ow_address),
+                            pio_name,
+                            sensor_name,
+                            new_value,
+                            on
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn check_day_night(
+    relay_devices: &mut RelayDevices,
+    relays: &mut Relays,
+    state_machine: &mut StateMachine,
+    transmitter: &Sender<DbTask>,
+    lat: f64,
+    lon: f64,
+    night: &mut bool,
+    name: &str,
+) {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Time went backwards");
+    let unixtime = since_the_epoch.as_millis();
+    let pos = sun::pos(unixtime as i64, lat, lon);
+    let az = pos.azimuth.to_degrees();
+    let alt = pos.altitude.to_degrees();
+    debug!("the position of the sun is az: {} / alt: {}", az, alt);
+    let new_night = alt < DAYLIGHT_SUN_DEGREE;
+
+    if *night == new_night {
+        return;
+    }
+    *night = new_night;
+    if *night {
+        info!("{}: Enabling night mode 🌙", name);
+    } else {
+        info!("{}: Disabling night mode 🌞", name);
+    }
+
+    for rb in &mut relay_devices.relay_boards {
+        let mut new_state: u8 = rb.get_actual_state();
+        for i in 0..=7 {
+            if let Some(id) = rb.relay[i] {
+                if let Some(relay) = relays.relay.iter_mut().find(|r| r.id == id) {
+                    let relay_marked = relay.tags.iter().any(|tag| tag == "all_night");
+                    if relay_marked {
+                        if relay.turn_on_prolong(
+                            ProlongKind::DayNight,
+                            *night,
+                            rb.get_dest_name(Some(i)),
+                            *night,
+                            false,
+                            None,
+                        ) {
+                            if *night {
+                                new_state = new_state & !(1 << i as u8);
+                            } else {
+                                new_state = new_state | (1 << i as u8);
+                            }
+                            rb.new_value = Some(new_state);
+                            increment_relay_counter(transmitter, relay.id);
+                        }
+                    }
+                }
+            }
+        }
+        //save output state when needed
+        rb.save_state();
+    }
+
+    for yeelight in &mut relay_devices.yeelight {
+        if let Some(dev) = relays.relay.iter_mut().find(|y| y.id == yeelight.id) {
+            let relay_marked = dev.tags.iter().any(|tag| tag == "all_night");
+            if relay_marked {
+                if dev.turn_on_prolong(
+                    ProlongKind::DayNight,
+                    *night,
+                    yeelight.get_dest_name(None),
+                    *night,
+                    !yeelight.powered_on,
+                    None,
+                ) {
+                    yeelight.turn_on_off(*night, &dev);
+                    dev.last_toggled = Some(Instant::now());
+                    increment_yeelight_counter(transmitter, yeelight.id);
+                }
+            }
+        }
+    }
+}
+
+//groups pending tasks once (by relay/yeelight id and by tag group) instead of
+//cloning + filtering the whole task list again for every single device
+fn process_pending_tasks(
+    relay_devices: &mut RelayDevices,
+    relays: &mut Relays,
+    transmitter: &Sender<DbTask>,
+    pending_tasks: &mut Vec<OneWireTask>,
+    night: bool,
+) {
+    if pending_tasks.is_empty() {
+        return;
+    }
+
+    let mut by_id: HashMap<i32, Vec<OneWireTask>> = HashMap::new();
+    let mut by_tag: HashMap<String, Vec<OneWireTask>> = HashMap::new();
+    for t in pending_tasks.drain(..) {
+        if let Some(id) = t.id_relay.or(t.id_yeelight) {
+            by_id.entry(id).or_default().push(t);
+        } else if let Some(tag) = t.tag_group.clone() {
+            by_tag.entry(tag).or_default().push(t);
+        }
+    }
+
+    let tasks_for = |id: i32, tags: &Vec<String>| -> Vec<&OneWireTask> {
+        let mut result: Vec<&OneWireTask> = by_id
+            .get(&id)
+            .map(|v| v.iter().collect())
+            .unwrap_or_default();
+        for tag in tags {
+            if let Some(v) = by_tag.get(tag) {
+                result.extend(v.iter());
+            }
+        }
+        result
+    };
+
+    //Yeelights
+    for yeelight in &mut relay_devices.yeelight {
+        if let Some(dev) = relays.relay.iter_mut().find(|y| y.id == yeelight.id) {
+            for t in tasks_for(dev.id, &dev.tags) {
+                debug!(
+                    "Processing OneWireTask: command={:?}, matched id_yeelight={}, duration={:?}",
+                    t.command, dev.id, t.duration
+                );
+                match t.command {
+                    TaskCommand::TurnOnProlong => {
+                        if dev.turn_on_prolong(
+                            ProlongKind::Remote,
+                            night,
+                            yeelight.get_dest_name(None),
+                            true,
+                            !yeelight.powered_on,
+                            t.duration,
+                        ) {
+                            yeelight.turn_on_off(true, &dev);
+                            dev.last_toggled = Some(Instant::now());
+                            increment_yeelight_counter(transmitter, dev.id);
+                        }
+                    }
+                    TaskCommand::TurnOff => {
+                        if dev.turn_on_prolong(
+                            ProlongKind::Remote,
+                            night,
+                            yeelight.get_dest_name(None),
+                            false,
+                            !yeelight.powered_on,
+                            t.duration,
+                        ) {
+                            yeelight.turn_on_off(false, &dev);
+                            dev.last_toggled = Some(Instant::now());
+                            increment_yeelight_counter(transmitter, dev.id);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    //Relays
+    for rb in &mut relay_devices.relay_boards {
+        let mut new_state: u8 = rb.get_actual_state();
+        for i in 0..=7 {
+            if let Some(id) = rb.relay[i] {
+                if let Some(relay) = relays.relay.iter_mut().find(|r| r.id == id) {
+                    for t in tasks_for(relay.id, &relay.tags) {
+                        debug!(
+                            "Processing OneWireTask: command={:?}, matched id_relay={}, duration={:?}",
+                            t.command, relay.id, t.duration
+                        );
+                        let currently_off = new_state & (1 << i as u8) != 0;
+                        match t.command {
+                            TaskCommand::TurnOnProlong => {
+                                if relay.turn_on_prolong(
+                                    ProlongKind::Remote,
+                                    night,
+                                    rb.get_dest_name(Some(i)),
+                                    true,
+                                    currently_off,
+                                    t.duration,
+                                ) {
+                                    new_state = new_state & !(1 << i as u8);
+                                    rb.new_value = Some(new_state);
+                                }
+                            }
+                            TaskCommand::TurnOff => {
+                                if relay.turn_on_prolong(
+                                    ProlongKind::Remote,
+                                    night,
+                                    rb.get_dest_name(Some(i)),
+                                    false,
+                                    currently_off,
+                                    t.duration,
+                                ) {
+                                    new_state = new_state | (1 << i as u8);
+                                    rb.new_value = Some(new_state);
+                                    increment_relay_counter(transmitter, relay.id);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        //save output state when needed
+        rb.save_state();
+    }
+}
+
+fn check_auto_off(
+    relay_devices: &mut RelayDevices,
+    relays: &mut Relays,
+    transmitter: &Sender<DbTask>,
+    night: bool,
+) {
+    //auto turn-off of relays
+    for rb in &mut relay_devices.relay_boards {
+        let mut new_state: u8 = rb.get_actual_state();
+        for i in 0..=7 {
+            if let Some(id) = rb.relay[i] {
+                if let Some(relay) = relays.relay.iter_mut().find(|r| r.id == id) {
+                    if let (Some(toggled), Some(stop_after)) =
+                        (relay.last_toggled, relay.stop_after)
+                    {
+                        if toggled.elapsed() > stop_after {
+                            let currently_off = new_state & (1 << i as u8) != 0;
+                            if relay.turn_on_prolong(
+                                ProlongKind::AutoOff,
+                                night,
+                                rb.get_dest_name(Some(i)),
+                                false,
+                                currently_off,
+                                None,
+                            ) {
+                                new_state = new_state | (1 << i as u8);
+                                rb.new_value = Some(new_state);
+                                increment_relay_counter(transmitter, relay.id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //save output state when needed
+        rb.save_state();
+    }
+
+    //auto turn-off of yeelights
+    for yeelight in &mut relay_devices.yeelight {
+        if let Some(dev) = relays.relay.iter_mut().find(|y| y.id == yeelight.id) {
+            if let (Some(toggled), Some(stop_after)) = (dev.last_toggled, dev.stop_after) {
+                if toggled.elapsed() > stop_after {
+                    if dev.turn_on_prolong(
+                        ProlongKind::AutoOff,
+                        night,
+                        yeelight.get_dest_name(None),
+                        false,
+                        !yeelight.powered_on,
+                        None,
+                    ) {
+                        yeelight.turn_on_off(false, &dev);
+                        dev.last_toggled = Some(Instant::now());
+                        increment_yeelight_counter(transmitter, yeelight.id);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl OneWire {
-    fn increment_relay_counter(&self, id_relay: i32) {
-        let task = DbTask {
-            command: CommandCode::IncrementRelayCounter,
-            value: Some(id_relay),
-        };
-        let _ = self.transmitter.send(task);
-    }
-
-    fn increment_yeelight_counter(&self, id_yeelight: i32) {
-        let task = DbTask {
-            command: CommandCode::IncrementYeelightCounter,
-            value: Some(id_yeelight),
-        };
-        let _ = self.transmitter.send(task);
-    }
-
-    fn load_geolocation_config(&self, lat: &mut f64, lon: &mut f64) {
-        let conf = Ini::load_from_file("hard.conf").expect("Cannot open config file");
-        let section = conf
-            .section(Some("general".to_owned()))
-            .expect("Cannot find general section in config");
-        *lat = section
-            .get("lat")
-            .unwrap_or(&"0.0".to_owned())
-            .parse()
-            .unwrap_or_default();
-        *lon = section
-            .get("lon")
-            .unwrap_or(&"0.0".to_owned())
-            .parse()
-            .unwrap_or_default();
-    }
-
-    pub fn worker(
-        &self,
+    //Runs as a normal async task (spawned into the same tokio JoinSet as the
+    //other workers, no dedicated std::thread anymore). The only blocking work
+    //-- sysfs sensor reads -- is confined to spawn_blocking inside
+    //poll_sensors(), so this task never stalls the shared runtime, and
+    //sensor_devices/relay_devices/relays need no lock since nothing else
+    //ever touches them.
+    pub async fn worker(
+        mut self,
         worker_cancel_flag: Arc<AtomicBool>,
         ethlcd: Option<EthLcd>,
-        rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
         rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
-    ) {
-        info!("{}: Starting thread", self.name);
+    ) -> std::result::Result<(), WorkerError> {
+        info!("{}: Starting task", self.name);
 
-        //show ethlcd config if set
         match &ethlcd {
             Some(device) => {
                 info!(
@@ -1520,7 +2161,7 @@ impl OneWire {
             wicket_gate_delay: None,
             wicket_gate_relays: vec![],
             ethlcd,
-            rfid_tags,
+            rfid_tags: vec![],
             rfid_pending_tags,
             cesspool_level: CesspoolLevel { level: vec![] },
             lcd_transmitter: self.lcd_transmitter.clone(),
@@ -1534,7 +2175,7 @@ impl OneWire {
         let mut lon: f64 = 0.0;
         let mut night_check = None;
         let mut night = false;
-        self.load_geolocation_config(&mut lat, &mut lon);
+        load_geolocation_config(&mut lat, &mut lon);
         if lat != 0.0 && lon != 0.0 {
             night_check = Some(Instant::now());
             info!(
@@ -1543,603 +2184,101 @@ impl OneWire {
             );
         }
 
-        let bits = vec![0, 2];
-        let names = &["PIOA", "PIOB"];
-
         loop {
-            let loop_start = Instant::now();
             if worker_cancel_flag.load(Ordering::SeqCst) {
                 debug!("Got terminate signal from main");
                 break;
             }
 
-            //checking for external relay tasks
-            //fixme: read all tasks, not a single one at a call
-            match self.ow_receiver.try_recv() {
-                Ok(mut t) => {
-                    debug!(
-                        "Received OneWireTask: id_relay: {:?}, tag_group: {:?}, duration: {:?}",
-                        t.id_relay, t.tag_group, t.duration
-                    );
-                    match t.command {
-                        TaskCommand::TurnOnProlongNight => {
-                            if night {
-                                //change to normal prolong command
-                                t.command = TaskCommand::TurnOnProlong;
-                                pending_tasks.push(t);
-                            }
-                        }
-                        _ => {
+            //apply any device reload(s) sent by the database task
+            while let Ok(data) = self.reload_receiver.try_recv() {
+                apply_reload(
+                    &mut self.sensor_devices,
+                    &mut self.relay_devices,
+                    &mut self.relays,
+                    &mut state_machine,
+                    data,
+                    &self.name,
+                );
+            }
+            if state_machine.cesspool_level.level.len() < self.sensor_devices.max_cesspool_level {
+                state_machine
+                    .cesspool_level
+                    .level
+                    .resize(self.sensor_devices.max_cesspool_level, None);
+            }
+
+            //drain all currently queued external tasks (garage beep / night-prolong
+            //conversion handled right here, same as before)
+            while let Ok(mut t) = self.ow_receiver.try_recv() {
+                debug!(
+                    "Received OneWireTask: id_relay: {:?}, tag_group: {:?}, duration: {:?}",
+                    t.id_relay, t.tag_group, t.duration
+                );
+                match t.command {
+                    TaskCommand::TurnOnProlongNight => {
+                        if night {
+                            t.command = TaskCommand::TurnOnProlong;
                             pending_tasks.push(t);
                         }
                     }
+                    _ => {
+                        pending_tasks.push(t);
+                    }
                 }
-                _ => (),
             }
 
-            debug!("doing stuff");
+            poll_sensors(
+                &mut self.sensor_devices,
+                &mut self.relay_devices,
+                &mut self.relays,
+                &mut state_machine,
+                &self.transmitter,
+                &mut pending_tasks,
+                night,
+                &self.name,
+            )
+            .await;
+
+            //checking day/night
+            if night_check.is_some()
+                && night_check.unwrap().elapsed()
+                    > Duration::from_secs_f32(SUN_POS_CHECK_INTERVAL_SECS)
             {
-                let mut sensor_dev = self.sensor_devices.write().unwrap();
-                let mut relay_dev = self.relay_devices.write().unwrap();
-                let mut relays = self.relays.write().unwrap();
-
-                //set a cesspool level size
-                if state_machine.cesspool_level.level.len() < sensor_dev.max_cesspool_level {
-                    state_machine
-                        .cesspool_level
-                        .level
-                        .resize(sensor_dev.max_cesspool_level, None);
-                }
-
-                //fixme: do we really need to clone this HashMap to use it below?
-                let kinds_cloned = sensor_dev.kinds.clone();
-
-                for sb in &mut sensor_dev.sensor_boards {
-                    match sb.read_state() {
-                        //we have a read value to process
-                        Some(new_value) => {
-                            match sb.last_value {
-                                Some(last_value) => {
-                                    //we have last value to compare with
-                                    if last_value != new_value {
-                                        debug!(
-                                            "{}: change detected, old: {:#04x} new: {:#04x}",
-                                            get_w1_device_name(sb.ow_family, sb.ow_address),
-                                            last_value,
-                                            new_value
-                                        );
-
-                                        for bit in &bits {
-                                            //check for bit change
-                                            if new_value & (1 << bit) != last_value & (1 << bit) {
-                                                let mut pio_name: &str = &"".to_string();
-                                                let mut sensor: &Option<Sensor> = &None;
-                                                if *bit == 0 {
-                                                    sensor = &sb.pio_a;
-                                                    pio_name = names[0];
-                                                } else if *bit == 2 {
-                                                    sensor = &sb.pio_b;
-                                                    pio_name = names[1];
-                                                }
-
-                                                //check if we have attached sensor
-                                                match sensor {
-                                                    Some(sensor) => {
-                                                        //db update task for sensor
-                                                        let task = DbTask {
-                                                            command:
-                                                                CommandCode::IncrementSensorCounter,
-                                                            value: Some(sensor.id_sensor),
-                                                        };
-                                                        let _ = self.transmitter.send(task);
-
-                                                        let kind_code = kinds_cloned
-                                                            .get(&sensor.id_kind)
-                                                            .unwrap();
-                                                        let on: bool = new_value & (1 << bit) != 0;
-
-                                                        //check hook function result and stop processing when needed
-                                                        let stop_processing = !state_machine
-                                                            .sensor_hook(
-                                                                &kind_code,
-                                                                &sensor.name,
-                                                                on,
-                                                                &sensor.tags,
-                                                                night,
-                                                                false,
-                                                                &mut pending_tasks,
-                                                                sensor.id_sensor,
-                                                            );
-                                                        info!(
-                                                            "<green>{}</>: <b>{}</> <cyan>(</><magenta>sensor:{}|{}</><cyan>)</>, value: {:#04x}, {}</>{}",
-                                                            kind_code,
-                                                            sensor.name,
-                                                            get_w1_device_name(
-                                                                sb.ow_family,
-                                                                sb.ow_address
-                                                            ),
-                                                            pio_name,
-                                                            new_value,
-                                                            {if on {"<bold><green>active"} else {"<bright-black>inactive"}},
-                                                            {if stop_processing {", <yellow>stopped processing</>"} else {""}},
-                                                        );
-                                                        if stop_processing {
-                                                            continue;
-                                                        }
-
-                                                        //trigger actions for relays
-                                                        let associated_relays =
-                                                            &sensor.associated_relays;
-                                                        if !associated_relays.is_empty() {
-                                                            relay_dev.relay_sensor_trigger(
-                                                                &mut relays.relay,
-                                                                &mut state_machine,
-                                                                associated_relays,
-                                                                kind_code,
-                                                                on,
-                                                                night,
-                                                            );
-                                                        }
-
-                                                        //trigger actions for yeelights
-                                                        let associated_yeelights =
-                                                            &sensor.associated_yeelights;
-                                                        if !associated_yeelights.is_empty() {
-                                                            relay_dev.yeelight_sensor_trigger(
-                                                                &mut relays.relay,
-                                                                &mut state_machine,
-                                                                self,
-                                                                associated_yeelights,
-                                                                kind_code,
-                                                                on,
-                                                                night,
-                                                            );
-                                                        }
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
-                                        }
-
-                                        //iteration over all boards that has changed state and needs a save_state()
-                                        for rb in &mut relay_dev.relay_boards {
-                                            match rb.new_value {
-                                                Some(new_value) => {
-                                                    let old_value = rb
-                                                        .last_value
-                                                        .unwrap_or(DS2408_INITIAL_STATE);
-                                                    if new_value != old_value {
-                                                        //checking all changed bits (relays) and set last_toggled Instant
-                                                        for i in 0..=7 {
-                                                            if new_value & (1 << i as u8)
-                                                                != old_value & (1 << i as u8)
-                                                            {
-                                                                match rb.relay[i] {
-                                                                    Some(id) => {
-                                                                        let r = relays
-                                                                            .relay
-                                                                            .iter_mut()
-                                                                            .find(|r| r.id == id);
-                                                                        match r {
-                                                                            Some(relay) => {
-                                                                                relay.last_toggled = Some(Instant::now());
-                                                                                self.increment_relay_counter(id);
-                                                                            }
-                                                                            None => (),
-                                                                        }
-                                                                    }
-                                                                    _ => {}
-                                                                }
-                                                            }
-                                                        }
-                                                        rb.save_state();
-                                                    }
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                    }
-                                }
-                                None => {
-                                    //sensor read for the very first time
-                                    debug!(
-                                        "{}: setting initial sensorboard value {:#04x}",
-                                        get_w1_device_name(sb.ow_family, sb.ow_address),
-                                        new_value
-                                    );
-
-                                    for bit in &bits {
-                                        let mut pio_name: &str = &"".to_string();
-                                        let mut sensor: &Option<Sensor> = &None;
-                                        if *bit == 0 {
-                                            sensor = &sb.pio_a;
-                                            pio_name = names[0];
-                                        } else if *bit == 2 {
-                                            sensor = &sb.pio_b;
-                                            pio_name = names[1];
-                                        }
-
-                                        //check if we have attached sensor
-                                        match sensor {
-                                            Some(sensor) => {
-                                                let kind_code =
-                                                    kinds_cloned.get(&sensor.id_kind).unwrap();
-                                                let on: bool = new_value & (1 << bit) != 0;
-
-                                                let _ = !state_machine.sensor_hook(
-                                                    &kind_code,
-                                                    &sensor.name,
-                                                    on,
-                                                    &sensor.tags,
-                                                    night,
-                                                    true,
-                                                    &mut pending_tasks,
-                                                    sensor.id_sensor,
-                                                );
-                                                debug!(
-                                                    "initial state: {}: [{} {} {}]: {:#04x} on: {}",
-                                                    kind_code,
-                                                    get_w1_device_name(sb.ow_family, sb.ow_address),
-                                                    pio_name,
-                                                    sensor.name,
-                                                    new_value,
-                                                    on
-                                                );
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                }
-                            }
-                            //processed -> save new value as the previous one:
-                            sb.last_value = Some(new_value);
-                        }
-                        None => (),
-                    }
-                    thread::sleep(Duration::from_micros(500));
-                }
-
-                //checking day/night
-                if night_check.is_some()
-                    && night_check.unwrap().elapsed()
-                        > Duration::from_secs_f32(SUN_POS_CHECK_INTERVAL_SECS)
-                {
-                    night_check = Some(Instant::now());
-                    let start = SystemTime::now();
-                    let since_the_epoch = start
-                        .duration_since(UNIX_EPOCH)
-                        .expect("Time went backwards");
-                    let unixtime = since_the_epoch.as_millis();
-                    let pos = sun::pos(unixtime as i64, lat, lon);
-                    let az = pos.azimuth.to_degrees();
-                    let alt = pos.altitude.to_degrees();
-                    debug!("the position of the sun is az: {} / alt: {}", az, alt);
-                    let new_night = alt < DAYLIGHT_SUN_DEGREE;
-
-                    if night != new_night {
-                        night = new_night;
-                        if night {
-                            info!("{}: Enabling night mode 🌙", self.name);
-                        } else {
-                            info!("{}: Disabling night mode 🌞", self.name);
-                        }
-
-                        for rb in &mut relay_dev.relay_boards {
-                            let mut new_state: u8 = rb.get_actual_state();
-
-                            //iteration on all relays and check 'all night' tag
-                            for i in 0..=7 {
-                                match rb.relay[i] {
-                                    Some(id) => {
-                                        let r = relays.relay.iter_mut().find(|r| r.id == id);
-                                        match r {
-                                            Some(relay) => {
-                                                let mut relay_marked: bool = false;
-                                                for tag in &relay.tags {
-                                                    match tag.as_ref() {
-                                                        "all_night" => {
-                                                            relay_marked = true;
-                                                        }
-                                                        _ => {}
-                                                    }
-                                                }
-                                                if relay_marked {
-                                                    if relay.turn_on_prolong(
-                                                        ProlongKind::DayNight,
-                                                        night,
-                                                        rb.get_dest_name(Some(i)),
-                                                        night,
-                                                        false,
-                                                        None,
-                                                    ) {
-                                                        if night {
-                                                            //turn ON relay
-                                                            new_state = new_state & !(1 << i as u8);
-                                                        } else {
-                                                            //turn OFF relay
-                                                            new_state = new_state | (1 << i as u8);
-                                                        }
-                                                        rb.new_value = Some(new_state);
-                                                        self.increment_relay_counter(relay.id);
-                                                    }
-                                                }
-                                            }
-                                            None => (),
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-
-                            //save output state when needed
-                            rb.save_state();
-                        }
-
-                        //iteration on all yeelights and check 'all night' tag
-                        for yeelight in &mut relay_dev.yeelight {
-                            let d = relays.relay.iter_mut().find(|y| y.id == yeelight.id);
-                            match d {
-                                Some(dev) => {
-                                    let mut relay_marked: bool = false;
-                                    for tag in &dev.tags {
-                                        match tag.as_ref() {
-                                            "all_night" => {
-                                                relay_marked = true;
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                    if relay_marked {
-                                        if dev.turn_on_prolong(
-                                            ProlongKind::DayNight,
-                                            night,
-                                            yeelight.get_dest_name(None),
-                                            night,
-                                            !yeelight.powered_on,
-                                            None,
-                                        ) {
-                                            yeelight.turn_on_off(night, &dev);
-                                            dev.last_toggled = Some(Instant::now());
-                                            self.increment_yeelight_counter(yeelight.id);
-                                        }
-                                    }
-                                }
-                                _ => (),
-                            }
-                        }
-                    }
-                }
-
-                //process rfid pending tags, if any
-                state_machine.process_rfid_tags(&mut pending_tasks, night);
-
-                //checking for pending tasks
-                if !pending_tasks.is_empty() {
-                    //Yeelights
-                    for yeelight in &mut relay_dev.yeelight {
-                        let d = relays.relay.iter_mut().find(|y| y.id == yeelight.id);
-                        match d {
-                            Some(dev) => {
-                                let relay_tasks: Vec<OneWireTask> = pending_tasks
-                                    .clone()
-                                    .into_iter()
-                                    .filter(|t| match t.id_yeelight {
-                                        Some(id) => dev.id == id,
-                                        None => match &t.tag_group {
-                                            Some(tag_name) => dev.tags.contains(tag_name),
-                                            None => false,
-                                        },
-                                    })
-                                    .collect();
-                                for t in &relay_tasks {
-                                    debug!("Processing OneWireTask: command={:?}, matched id_yeelight={}, duration={:?}", t.command, dev.id, t.duration);
-
-                                    match t.command {
-                                        TaskCommand::TurnOnProlong => {
-                                            //turn on or prolong
-                                            if dev.turn_on_prolong(
-                                                ProlongKind::Remote,
-                                                night,
-                                                yeelight.get_dest_name(None),
-                                                true,
-                                                !yeelight.powered_on,
-                                                t.duration,
-                                            ) {
-                                                yeelight.turn_on_off(true, &dev);
-                                                dev.last_toggled = Some(Instant::now());
-                                                self.increment_yeelight_counter(dev.id);
-                                            }
-                                        }
-                                        TaskCommand::TurnOff => {
-                                            if dev.turn_on_prolong(
-                                                ProlongKind::Remote,
-                                                night,
-                                                yeelight.get_dest_name(None),
-                                                false,
-                                                !yeelight.powered_on,
-                                                t.duration,
-                                            ) {
-                                                yeelight.turn_on_off(false, &dev);
-                                                dev.last_toggled = Some(Instant::now());
-                                                self.increment_yeelight_counter(dev.id);
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                            }
-                            _ => (),
-                        }
-                    }
-
-                    //Relays
-                    for rb in &mut relay_dev.relay_boards {
-                        let mut new_state: u8 = rb.get_actual_state();
-
-                        //iterate all relays in the board
-                        for i in 0..=7 {
-                            match rb.relay[i] {
-                                Some(id) => {
-                                    let r = relays.relay.iter_mut().find(|r| r.id == id);
-                                    match r {
-                                        Some(relay) => {
-                                            let relay_tasks: Vec<OneWireTask> = pending_tasks
-                                                .clone()
-                                                .into_iter()
-                                                .filter(|t| match t.id_relay {
-                                                    Some(id) => relay.id == id,
-                                                    None => match &t.tag_group {
-                                                        Some(tag_name) => {
-                                                            relay.tags.contains(tag_name)
-                                                        }
-                                                        None => false,
-                                                    },
-                                                })
-                                                .collect();
-                                            for t in &relay_tasks {
-                                                debug!(
-                                            "Processing OneWireTask: command={:?}, matched id_relay={}, duration={:?}",
-                                            t.command, relay.id, t.duration
-                                        );
-
-                                                //check if bit is set (relay is off)
-                                                let currently_off = new_state & (1 << i as u8) != 0;
-                                                match t.command {
-                                                    TaskCommand::TurnOnProlong => {
-                                                        //turn on or prolong
-                                                        if relay.turn_on_prolong(
-                                                            ProlongKind::Remote,
-                                                            night,
-                                                            rb.get_dest_name(Some(i)),
-                                                            true,
-                                                            currently_off,
-                                                            t.duration,
-                                                        ) {
-                                                            new_state = new_state & !(1 << i as u8);
-                                                            rb.new_value = Some(new_state);
-                                                        }
-                                                    }
-                                                    TaskCommand::TurnOff => {
-                                                        if relay.turn_on_prolong(
-                                                            ProlongKind::Remote,
-                                                            night,
-                                                            rb.get_dest_name(Some(i)),
-                                                            false,
-                                                            currently_off,
-                                                            t.duration,
-                                                        ) {
-                                                            //set a bit -> turn off relay
-                                                            new_state = new_state | (1 << i as u8);
-                                                            rb.new_value = Some(new_state);
-                                                            self.increment_relay_counter(relay.id);
-                                                        }
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-
-                        //save output state when needed
-                        rb.save_state();
-                    }
-                    pending_tasks.clear();
-                }
-
-                //checking for auto turn-off of necessary relays
-                for rb in &mut relay_dev.relay_boards {
-                    let mut new_state: u8 = rb.get_actual_state();
-
-                    //iteration on all relays and check elapsed time
-                    for i in 0..=7 {
-                        match rb.relay[i] {
-                            Some(id) => {
-                                let r = relays.relay.iter_mut().find(|r| r.id == id);
-                                match r {
-                                    Some(relay) => {
-                                        match relay.last_toggled {
-                                            Some(toggled) => {
-                                                match relay.stop_after {
-                                                    Some(stop_after) => {
-                                                        if toggled.elapsed() > stop_after {
-                                                            let currently_off =
-                                                                new_state & (1 << i as u8) != 0;
-                                                            if relay.turn_on_prolong(
-                                                                ProlongKind::AutoOff,
-                                                                night,
-                                                                rb.get_dest_name(Some(i)),
-                                                                false,
-                                                                currently_off,
-                                                                None,
-                                                            ) {
-                                                                //set a bit -> turn off relay
-                                                                new_state =
-                                                                    new_state | (1 << i as u8);
-                                                                rb.new_value = Some(new_state);
-                                                                self.increment_relay_counter(
-                                                                    relay.id,
-                                                                );
-                                                            }
-                                                        }
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    //save output state when needed
-                    rb.save_state();
-                }
-
-                //checking for auto turn-off of necessary yeelights
-                for yeelight in &mut relay_dev.yeelight {
-                    let d = relays.relay.iter_mut().find(|y| y.id == yeelight.id);
-                    match d {
-                        Some(dev) => match dev.last_toggled {
-                            Some(toggled) => match dev.stop_after {
-                                Some(stop_after) => {
-                                    if toggled.elapsed() > stop_after {
-                                        if dev.turn_on_prolong(
-                                            ProlongKind::AutoOff,
-                                            night,
-                                            yeelight.get_dest_name(None),
-                                            false,
-                                            !yeelight.powered_on,
-                                            None,
-                                        ) {
-                                            yeelight.turn_on_off(false, &dev);
-                                            dev.last_toggled = Some(Instant::now());
-                                            self.increment_yeelight_counter(yeelight.id);
-                                        }
-                                    }
-                                }
-                                _ => {}
-                            },
-                            _ => {}
-                        },
-                        _ => (),
-                    }
-                }
+                night_check = Some(Instant::now());
+                check_day_night(
+                    &mut self.relay_devices,
+                    &mut self.relays,
+                    &mut state_machine,
+                    &self.transmitter,
+                    lat,
+                    lon,
+                    &mut night,
+                    &self.name,
+                );
             }
 
-            debug!(
-                "Loop iteration total time: {} ms",
-                loop_start.elapsed().as_millis()
+            //process rfid pending tags, if any
+            state_machine.process_rfid_tags(&mut pending_tasks, night);
+
+            //checking for pending tasks
+            process_pending_tasks(
+                &mut self.relay_devices,
+                &mut self.relays,
+                &self.transmitter,
+                &mut pending_tasks,
+                night,
+            );
+
+            //checking for auto turn-off of necessary relays/yeelights
+            check_auto_off(
+                &mut self.relay_devices,
+                &mut self.relays,
+                &self.transmitter,
+                night,
             );
         }
-        info!("{}: thread stopped", self.name);
+        info!("{}: task stopped", self.name);
+        Ok(())
     }
 }

@@ -11,7 +11,6 @@ use crate::database::DbTask;
 use crate::ethlcd::EthLcd;
 use crate::lcdproc::LcdTask;
 use crate::onewire::OneWireTask;
-use crate::rfid::RfidTag;
 use flume::{Receiver, Sender};
 use futures::future::join_all;
 use humantime::format_duration;
@@ -20,7 +19,6 @@ use std::env;
 use std::fs::OpenOptions;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
-use std::thread;
 use std::time::{Duration, Instant};
 use tokio::task;
 use tokio::task::JoinSet;
@@ -118,9 +116,12 @@ async fn main() {
 
     //common thread stuff
     let influxdb_url = get_config_string("influxdb_url", None);
-    let mut threads = vec![];
     let mut futures = JoinSet::new();
     let cancel_flag = Arc::new(AtomicBool::new(false));
+    //sensor_devices/relay_devices/relays are now owned directly by the onewire
+    //coordinator task (no more Arc<RwLock<...>>): the database task only ever
+    //*sends* a fresh snapshot over reload_rx/reload_tx below, it never shares
+    //mutable access to these anymore.
     let sensor_devices = onewire::SensorDevices {
         kinds: HashMap::new(),
         sensor_boards: vec![],
@@ -135,13 +136,8 @@ async fn main() {
         kinds: HashMap::new(),
         env_sensors: vec![],
     };
-    let rfid_tags: Vec<RfidTag> = vec![];
     let rfid_pending_tags: Vec<u32> = vec![];
-    let onewire_sensor_devices = Arc::new(RwLock::new(sensor_devices));
-    let onewire_relay_devices = Arc::new(RwLock::new(relay_devices));
-    let onewire_relays = Arc::new(RwLock::new(relays));
     let onewire_env_sensor_devices = Arc::new(RwLock::new(env_sensor_devices));
-    let onewire_rfid_tags = Arc::new(RwLock::new(rfid_tags));
     let onewire_rfid_pending_tags = Arc::new(RwLock::new(rfid_pending_tags));
     let (tx, rx): (Sender<DbTask>, Receiver<DbTask>) = flume::unbounded(); //database thread comm channel
     let (deye_yield_tx, deye_yield_rx): (
@@ -150,6 +146,10 @@ async fn main() {
     ) = flume::unbounded(); //deye daily-yield comm channel
     let (ow_tx, ow_rx): (Sender<OneWireTask>, Receiver<OneWireTask>) = flume::unbounded(); //onewire thread comm channel
     let (lcd_tx, lcd_rx): (Sender<LcdTask>, Receiver<LcdTask>) = flume::unbounded(); //lcdproc comm channel
+    let (reload_tx, reload_rx): (
+        Sender<onewire::DeviceReloadData>,
+        Receiver<onewire::DeviceReloadData>,
+    ) = flume::unbounded(); //database -> onewire device-reload comm channel
 
     //ethlcd struct
     let ethlcd = match get_config_string("ethlcd_host", None) {
@@ -172,11 +172,8 @@ async fn main() {
             receiver: rx,
             conn: None,
             disable_onewire: get_config_bool("disable_onewire", None),
-            sensor_devices: onewire_sensor_devices.clone(),
-            relay_devices: onewire_relay_devices.clone(),
-            relays: onewire_relays.clone(),
+            reload_transmitter: reload_tx,
             env_sensor_devices: onewire_env_sensor_devices.clone(),
-            rfid_tags: onewire_rfid_tags.clone(),
             sensor_counters: Default::default(),
             relay_counters: Default::default(),
             yeelight_counters: Default::default(),
@@ -195,30 +192,29 @@ async fn main() {
     }
 
     if !get_config_bool("disable_onewire", None) {
-        //creating onewire thread
+        //creating onewire coordinator task -- runs on the same tokio runtime
+        //as everything else now (no dedicated std::thread anymore); the only
+        //blocking work it does (sysfs sensor reads) is confined to
+        //spawn_blocking inside its own poll loop, so it can't stall this
+        //current_thread runtime or any other task on it.
         let onewire = onewire::OneWire {
             name: "onewire".to_string(),
             transmitter: tx.clone(),
             ow_receiver: ow_rx,
             lcd_transmitter: lcd_tx.clone(),
-            sensor_devices: onewire_sensor_devices.clone(),
-            relay_devices: onewire_relay_devices.clone(),
-            relays: onewire_relays.clone(),
+            reload_receiver: reload_rx,
+            sensor_devices,
+            relay_devices,
+            relays,
         };
         let worker_cancel_flag = cancel_flag.clone();
-        let thread_builder = thread::Builder::new().name("onewire".into()); //thread name
         let rfid_pending_tags_cloned = onewire_rfid_pending_tags.clone();
-        let thread_handler = thread_builder
-            .spawn(move || {
-                onewire.worker(
-                    worker_cancel_flag,
-                    ethlcd,
-                    onewire_rfid_tags.clone(),
-                    rfid_pending_tags_cloned,
-                );
-            })
-            .unwrap();
-        threads.push(thread_handler);
+        let onewire_future = async move {
+            onewire
+                .worker(worker_cancel_flag, ethlcd, rfid_pending_tags_cloned)
+                .await
+        };
+        futures.spawn(onewire_future);
 
         //creating onewire_env task
         let onewire_env = onewire_env::OneWireEnv {
@@ -365,15 +361,11 @@ async fn main() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
-    info!("🏁 Stopping all threads...");
-    //inform all threads about termination
+    info!("🏁 Stopping all tasks...");
+    //inform all tasks about termination
     cancel_flag.store(true, Ordering::SeqCst);
-    //wait for termination
-    for t in threads {
-        // Wait for the thread to finish. Returns a result.
-        let _ = t.join();
-    }
-    //wait for tokio async tasks
+    //wait for tokio async tasks (onewire is now one of them too, no more
+    //separate std::thread to join here)
     let mut cnt = 2;
     loop {
         match tokio::time::timeout(Duration::from_secs(10), futures.join_next()).await {

@@ -3,7 +3,7 @@ extern crate postgres;
 extern crate postgres_openssl;
 
 use self::ini::Ini;
-use flume::Receiver;
+use flume::{Receiver, Sender};
 use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
 use postgres_openssl::MakeTlsConnector;
 use simplelog::*;
@@ -33,11 +33,11 @@ pub struct Database {
     pub receiver: Receiver<DbTask>,
     pub conn: Option<postgres::Client>,
     pub disable_onewire: bool,
-    pub sensor_devices: Arc<RwLock<onewire::SensorDevices>>,
-    pub relay_devices: Arc<RwLock<onewire::RelayDevices>>,
-    pub relays: Arc<RwLock<onewire::Relays>>,
+    //no more Arc<RwLock<...>> for onewire's runtime state: it is owned solely
+    //by the onewire coordinator task now. On reload we just send it a fresh
+    //snapshot over this channel instead of writing into shared state.
+    pub reload_transmitter: Sender<onewire::DeviceReloadData>,
     pub env_sensor_devices: Arc<RwLock<onewire_env::EnvSensorDevices>>,
-    pub rfid_tags: Arc<RwLock<Vec<RfidTag>>>,
     pub sensor_counters: HashMap<i32, u32>,
     pub relay_counters: HashMap<i32, u32>,
     pub yeelight_counters: HashMap<i32, u32>,
@@ -96,25 +96,25 @@ impl Database {
     fn load_devices(&mut self) {
         match self.conn.borrow_mut() {
             Some(client) => {
-                let mut sensor_dev = self.sensor_devices.write().unwrap();
+                //env_sensor_devices is untouched by this change (still shared
+                //with the onewire_env task via a lock); everything onewire-
+                //related below is instead collected locally and shipped off
+                //as a single message once loading is complete.
                 let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
-                let mut relay_dev = self.relay_devices.write().unwrap();
-                let mut relays = self.relays.write().unwrap();
-                let mut rfid_tag = self.rfid_tags.write().unwrap();
 
                 info!("🦏 {}: Loading data from view 'kinds'...", self.name);
-                sensor_dev.kinds.clear();
+                let mut kinds: HashMap<i32, String> = HashMap::new();
                 env_sensor_dev.kinds.clear();
                 for row in client.query("select * from kinds", &[]).unwrap() {
                     let id_kind: i32 = row.get("id_kind");
                     let name: String = row.get("name");
                     debug!("Got kind: {}: {}", id_kind, name);
-                    sensor_dev.kinds.insert(id_kind, name.clone());
+                    kinds.insert(id_kind, name.clone());
                     env_sensor_dev.kinds.insert(id_kind, name);
                 }
 
                 info!("🦏 {}: Loading data from view 'sensors'...", self.name);
-                sensor_dev.sensor_boards.clear();
+                let mut sensors = Vec::new();
                 for row in client.query("select * from sensors", &[]).unwrap() {
                     let id_sensor: i32 = row.get("id_sensor");
                     let id_kind: i32 = row.get("id_kind");
@@ -128,7 +128,7 @@ impl Database {
                     debug!(
                         "Got sensor: id_sensor={} kind={:?} name={:?} family_code={:?} address={} bit={} relay_agg={:?} yeelight_agg={:?} tags={:?}",
                         id_sensor,
-                        sensor_dev.kinds.get(&id_kind).unwrap(),
+                        kinds.get(&id_kind).unwrap(),
                         name,
                         family_code,
                         address,
@@ -137,17 +137,17 @@ impl Database {
                         yeelight_agg,
                         tags,
                     );
-                    sensor_dev.add_sensor(
+                    sensors.push(onewire::SensorRow {
                         id_sensor,
                         id_kind,
                         name,
                         family_code,
-                        address as u64,
-                        bit as u8,
-                        relay_agg,
-                        yeelight_agg,
+                        address: address as u64,
+                        bit: bit as u8,
+                        associated_relays: relay_agg,
+                        associated_yeelights: yeelight_agg,
                         tags,
-                    );
+                    });
                 }
 
                 info!("🦏 {}: Loading data from view 'env_sensors'...", self.name);
@@ -185,6 +185,7 @@ impl Database {
                 }
 
                 info!("🦏 {}: Loading data from view 'relays'...", self.name);
+                let mut relays = Vec::new();
                 for row in client.query("select * from relays", &[]).unwrap() {
                     let id_relay: i32 = row.get("id_relay");
                     let name: String = row.get("name");
@@ -201,24 +202,23 @@ impl Database {
                         "Got relay: id_relay={} name={:?} family_code={:?} address={} bit={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?} initial_state={} pir_all_day={} tags={:?}",
                         id_relay, name, family_code, address, bit, pir_exclude, pir_hold_secs, switch_hold_secs, initial_state, pir_all_day, tags
                     );
-                    relay_dev.add_relay(
-                        &mut relays.relay,
+                    relays.push(onewire::RelayRow {
                         id_relay,
                         name,
                         family_code,
-                        address as u64,
-                        bit as u8,
+                        address: address as u64,
+                        bit: bit as u8,
                         pir_exclude,
                         pir_hold_secs,
                         switch_hold_secs,
                         initial_state,
                         pir_all_day,
                         tags,
-                    );
+                    });
                 }
 
                 info!("🦏 {}: Loading data from view 'yeelights'...", self.name);
-                relay_dev.yeelight.clear();
+                let mut yeelights = Vec::new();
                 for row in client.query("select * from yeelights", &[]).unwrap() {
                     let id_yeelight: i32 = row.get("id_yeelight");
                     let name: String = row.get("name");
@@ -232,8 +232,7 @@ impl Database {
                         "Got yeelight: id_yeelight={} name={:?} ip_address={} pir_exclude={} pir_hold_secs={:?} switch_hold_secs={:?} pir_all_day={} tags={:?}",
                         id_yeelight, name, ip_address, pir_exclude, pir_hold_secs, switch_hold_secs, pir_all_day, tags
                     );
-                    relay_dev.add_yeelight(
-                        &mut relays.relay,
+                    yeelights.push(onewire::YeelightRow {
                         id_yeelight,
                         name,
                         ip_address,
@@ -242,11 +241,11 @@ impl Database {
                         switch_hold_secs,
                         pir_all_day,
                         tags,
-                    );
+                    });
                 }
 
                 info!("🦏 {}: Loading data from view 'rfid_tags'...", self.name);
-                rfid_tag.clear();
+                let mut rfid_tags = Vec::new();
                 for row in client.query("select * from rfid_tags", &[]).unwrap() {
                     let id_tag: i32 = row.get("id_tag");
                     let name: String = row.get("name");
@@ -256,13 +255,31 @@ impl Database {
                         "Got RFID tag: id_tag={} name={:?}, tags={:?}, relay_agg={:?}",
                         id_tag, name, tags, relay_agg
                     );
-                    let new_tag = RfidTag {
+                    rfid_tags.push(RfidTag {
                         id_tag,
                         name,
                         tags,
                         associated_relays: relay_agg,
-                    };
-                    rfid_tag.push(new_tag);
+                    });
+                }
+
+                //hand the whole freshly-loaded snapshot to the onewire
+                //coordinator in one message; it applies it (and merges in
+                //override_mode/last_toggled/stop_after for relays that
+                //still exist) using the exact same add_relay()/add_yeelight()
+                //logic that used to run right here under the lock.
+                let reload_data = onewire::DeviceReloadData {
+                    kinds,
+                    sensors,
+                    relays,
+                    yeelights,
+                    rfid_tags,
+                };
+                if let Err(e) = self.reload_transmitter.send(reload_data) {
+                    error!(
+                        "{}: failed to send reloaded device data to onewire task: {:?}",
+                        self.name, e
+                    );
                 }
             }
             None => {
