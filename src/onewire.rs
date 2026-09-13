@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 // Same generic error type as used in database.rs's `Result<T>` alias --
 // needed so that OneWire::worker()'s future has the same Output type as the
@@ -504,11 +505,18 @@ pub struct RelayBoard {
     pub ow_address: u64,
     pub new_value: Option<u8>,
     pub last_value: Option<u8>,
-    pub file: Option<File>,
+    //async I/O: writing an output byte to the w1 sysfs file no longer
+    //blocks the shared tokio runtime while it's in flight -- tokio::fs
+    //offloads it to the blocking pool internally, same effect as
+    //sensor_poller_thread's dedicated thread but without us having to
+    //hand-roll it here. SensorBoard (below) intentionally keeps std::fs,
+    //since its reads already happen on a dedicated blocking thread (see
+    //sensor_poller_thread) where there is no async runtime to hand this to.
+    pub file: Option<tokio::fs::File>,
 }
 
 impl RelayBoard {
-    fn open(&mut self) {
+    async fn open(&mut self) {
         let path = format!(
             "{}/{}/output",
             W1_ROOT_PATH,
@@ -520,7 +528,10 @@ impl RelayBoard {
             get_w1_device_name(self.ow_family, self.ow_address),
             data_path.display()
         );
-        let file = OpenOptions::new().write(true).open(data_path);
+        let file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(data_path)
+            .await;
         match file {
             Ok(file) => {
                 self.file = Some(file);
@@ -536,9 +547,9 @@ impl RelayBoard {
         }
     }
 
-    fn save_state(&mut self) {
+    async fn save_state(&mut self) {
         if self.file.is_none() {
-            self.open();
+            self.open().await;
         }
 
         match &mut self.file {
@@ -549,7 +560,7 @@ impl RelayBoard {
                         get_w1_device_name(self.ow_family, self.ow_address),
                         val
                     );
-                    match file.seek(SeekFrom::Start(0)) {
+                    match file.seek(SeekFrom::Start(0)).await {
                         Err(e) => {
                             error!(
                                 "{}: file seek error: {:?}",
@@ -560,7 +571,7 @@ impl RelayBoard {
                         _ => {}
                     }
                     let new_value = [val; 1];
-                    match file.write_all(&new_value) {
+                    match file.write_all(&new_value).await {
                         Ok(_) => {
                             self.last_value = Some(val);
                             self.new_value = None;
@@ -931,7 +942,9 @@ impl RelayDevices {
                 //assume that all relays are turned off by default
                 relay_board.last_value = Some(DS2408_INITIAL_STATE);
 
-                relay_board.open();
+                //file is opened lazily by save_state() on first write (it's
+                //now async tokio::fs I/O, which add_relay() -- a sync
+                //function called from apply_reload() -- can't .await here)
                 self.relay_boards.push(relay_board);
                 self.relay_boards.last_mut().unwrap()
             }
@@ -1751,7 +1764,7 @@ fn sensor_poller_thread(
 //only ever read here (metadata lookup by address) -- ownership of the
 //SensorBoard entries used for actual I/O lives solely in the poller thread,
 //so nothing here needs a lock.
-fn apply_sensor_change(
+async fn apply_sensor_change(
     sensor_devices: &SensorDevices,
     relay_devices: &mut RelayDevices,
     relays: &mut Relays,
@@ -1901,7 +1914,7 @@ fn apply_sensor_change(
                                 }
                             }
                         }
-                        rb.save_state();
+                        rb.save_state().await;
                     }
                 }
             }
@@ -1955,7 +1968,7 @@ fn apply_sensor_change(
     }
 }
 
-fn check_day_night(
+async fn check_day_night(
     relay_devices: &mut RelayDevices,
     relays: &mut Relays,
     state_machine: &mut StateMachine,
@@ -2014,7 +2027,7 @@ fn check_day_night(
             }
         }
         //save output state when needed
-        rb.save_state();
+        rb.save_state().await;
     }
 
     for yeelight in &mut relay_devices.yeelight {
@@ -2040,7 +2053,7 @@ fn check_day_night(
 
 //groups pending tasks once (by relay/yeelight id and by tag group) instead of
 //cloning + filtering the whole task list again for every single device
-fn process_pending_tasks(
+async fn process_pending_tasks(
     relay_devices: &mut RelayDevices,
     relays: &mut Relays,
     transmitter: &Sender<DbTask>,
@@ -2164,11 +2177,11 @@ fn process_pending_tasks(
             }
         }
         //save output state when needed
-        rb.save_state();
+        rb.save_state().await;
     }
 }
 
-fn check_auto_off(
+async fn check_auto_off(
     relay_devices: &mut RelayDevices,
     relays: &mut Relays,
     transmitter: &Sender<DbTask>,
@@ -2203,7 +2216,7 @@ fn check_auto_off(
             }
         }
         //save output state when needed
-        rb.save_state();
+        rb.save_state().await;
     }
 
     //auto turn-off of yeelights
@@ -2387,7 +2400,8 @@ impl OneWire {
                         night,
                         &self.name,
                         change,
-                    );
+                    )
+                    .await;
                     //drain anything else that piled up in the meantime so a
                     //burst of changes is applied together, same as a single
                     //poll pass used to do
@@ -2402,7 +2416,8 @@ impl OneWire {
                             night,
                             &self.name,
                             change,
-                        );
+                        )
+                        .await;
                     }
                 }
                 Ok(Err(_)) => {
@@ -2436,7 +2451,8 @@ impl OneWire {
                     lon,
                     &mut night,
                     &self.name,
-                );
+                )
+                .await;
             }
 
             //process rfid pending tags, if any
@@ -2449,7 +2465,8 @@ impl OneWire {
                 &self.transmitter,
                 &mut pending_tasks,
                 night,
-            );
+            )
+            .await;
 
             //checking for auto turn-off of necessary relays/yeelights
             check_auto_off(
@@ -2457,7 +2474,8 @@ impl OneWire {
                 &mut self.relays,
                 &self.transmitter,
                 night,
-            );
+            )
+            .await;
         }
         info!("{}: task stopped", self.name);
         Ok(())
