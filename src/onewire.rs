@@ -15,7 +15,6 @@ use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::mem;
 use std::net::TcpStream;
 use std::ops::Add;
 use std::path::Path;
@@ -138,6 +137,18 @@ pub struct DeviceReloadData {
     pub relays: Vec<RelayRow>,
     pub yeelights: Vec<YeelightRow>,
     pub rfid_tags: Vec<RfidTag>,
+}
+
+//a single detected bus-level change, sent by the dedicated sensor-polling
+//thread to the async coordinator. Carries only the raw address/value info --
+//no sensor metadata (kinds/tags/associated_relays/...) crosses this channel,
+//since that data lives solely in the coordinator's SensorDevices and is
+//looked up there by (ow_family, ow_address) when the change is applied.
+pub struct SensorBoardChange {
+    pub ow_family: u8,
+    pub ow_address: u64,
+    pub old_value: Option<u8>,
+    pub new_value: u8,
 }
 
 pub fn get_w1_device_name(family_code: u8, address: u64) -> String {
@@ -1568,12 +1579,19 @@ fn load_geolocation_config(lat: &mut f64, lon: &mut f64) {
 //Note: relay_boards themselves are intentionally NOT cleared here, matching
 //the original database.rs behavior (a board no longer present in the DB is
 //simply left in place / overwritten, never pruned).
+//
+//Also forwards the fresh set of (ow_family, ow_address) pairs to the
+//dedicated sensor-polling thread over poller_boards_tx, so it knows which
+//w1 devices to read from now on. sensor_devices here keeps holding the
+//*metadata* only (kinds/pio_a/pio_b/tags/associated_relays/...); the polling
+//thread keeps its own, separate list for the actual file I/O.
 fn apply_reload(
     sensor_devices: &mut SensorDevices,
     relay_devices: &mut RelayDevices,
     relays: &mut Relays,
     state_machine: &mut StateMachine,
     data: DeviceReloadData,
+    poller_boards_tx: &Sender<Vec<(u8, u64)>>,
     name: &str,
 ) {
     info!("{}: applying reloaded device configuration", name);
@@ -1591,6 +1609,18 @@ fn apply_reload(
             row.associated_relays,
             row.associated_yeelights,
             row.tags,
+        );
+    }
+
+    let poller_boards: Vec<(u8, u64)> = sensor_devices
+        .sensor_boards
+        .iter()
+        .map(|b| (b.ow_family, b.ow_address))
+        .collect();
+    if let Err(e) = poller_boards_tx.send(poller_boards) {
+        error!(
+            "{}: failed to send updated board list to sensor poller thread: {:?}",
+            name, e
         );
     }
 
@@ -1629,14 +1659,100 @@ fn apply_reload(
     state_machine.rfid_tags = data.rfid_tags;
 }
 
-//Poll all sensor boards for changes. The blocking sysfs reads (and the
-//mandatory small delay between them, required by the w1 bus) run on a
-//dedicated blocking-pool thread via spawn_blocking, so they can never stall
-//this task's own progress or any other task sharing the same tokio runtime.
-//Nothing here needs a lock: sensor_devices/relay_devices/relays are owned
-//solely by the coordinator loop that calls this function.
-async fn poll_sensors(
-    sensor_devices: &mut SensorDevices,
+//Runs on a dedicated blocking-pool thread for the whole lifetime of the
+//onewire task (spawned once via spawn_blocking, not per-iteration). Owns its
+//own private list of SensorBoard entries -- used here purely for their
+//open()/read_state() I/O, never for the pio_a/pio_b/kinds/tags metadata,
+//which stays solely in the coordinator's SensorDevices. This means no lock
+//is needed anywhere: the two lists (this one and the coordinator's) are
+//independent, and are kept in sync only by the address list the coordinator
+//pushes over boards_rx every time a device reload happens.
+//
+//Detected changes are pushed to the coordinator over change_tx as soon as
+//they're found; the coordinator applies them asynchronously and drives its
+//own pacing (see apply_sensor_change() and the main loop in worker()).
+fn rebuild_poller_boards(addrs: Vec<(u8, u64)>) -> Vec<SensorBoard> {
+    addrs
+        .into_iter()
+        .map(|(ow_family, ow_address)| SensorBoard {
+            pio_a: None,
+            pio_b: None,
+            ow_family,
+            ow_address,
+            last_value: None,
+            file: None,
+        })
+        .collect()
+}
+
+fn sensor_poller_thread(
+    boards_rx: Receiver<Vec<(u8, u64)>>,
+    change_tx: Sender<SensorBoardChange>,
+    cancel_flag: Arc<AtomicBool>,
+    name: String,
+) {
+    info!("{}: sensor poller thread starting", name);
+    let mut boards: Vec<SensorBoard> = Vec::new();
+
+    loop {
+        if cancel_flag.load(Ordering::SeqCst) {
+            break;
+        }
+
+        //apply the latest board list sent by the coordinator, if any (a
+        //device reload rebuilds this list from scratch, same as the
+        //coordinator's own metadata copy -- last_value/file are reset,
+        //matching the pre-existing reload behavior)
+        while let Ok(addrs) = boards_rx.try_recv() {
+            boards = rebuild_poller_boards(addrs);
+        }
+
+        if boards.is_empty() {
+            //nothing to poll yet (e.g. before the first device reload
+            //arrives) -- wait a bit for one to show up, but don't just
+            //discard it if it does: recv_timeout() actually consumes the
+            //message from the channel, so if we throw the Ok(..) away here
+            //instead of applying it, the board list is lost for good and
+            //this thread never polls anything.
+            if let Ok(addrs) = boards_rx.recv_timeout(Duration::from_millis(200)) {
+                boards = rebuild_poller_boards(addrs);
+            }
+            continue;
+        }
+
+        for sb in &mut boards {
+            if cancel_flag.load(Ordering::SeqCst) {
+                break;
+            }
+            if let Some(new_value) = sb.read_state() {
+                if sb.last_value != Some(new_value) {
+                    let change = SensorBoardChange {
+                        ow_family: sb.ow_family,
+                        ow_address: sb.ow_address,
+                        old_value: sb.last_value,
+                        new_value,
+                    };
+                    sb.last_value = Some(new_value);
+                    if change_tx.send(change).is_err() {
+                        //coordinator gone -- nothing more to do
+                        info!("{}: sensor poller thread stopping (coordinator gone)", name);
+                        return;
+                    }
+                }
+            }
+            //mandatory small delay between consecutive w1 bus reads (hardware requirement)
+            thread::sleep(Duration::from_micros(500));
+        }
+    }
+    info!("{}: sensor poller thread stopped", name);
+}
+
+//Apply one change reported by the sensor-polling thread. sensor_devices is
+//only ever read here (metadata lookup by address) -- ownership of the
+//SensorBoard entries used for actual I/O lives solely in the poller thread,
+//so nothing here needs a lock.
+fn apply_sensor_change(
+    sensor_devices: &SensorDevices,
     relay_devices: &mut RelayDevices,
     relays: &mut Relays,
     state_machine: &mut StateMachine,
@@ -1644,105 +1760,91 @@ async fn poll_sensors(
     pending_tasks: &mut Vec<OneWireTask>,
     night: bool,
     name: &str,
+    change: SensorBoardChange,
 ) {
-    if sensor_devices.sensor_boards.is_empty() {
-        //nothing to poll yet (e.g. before the first device reload arrives)
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        return;
-    }
+    let SensorBoardChange {
+        ow_family,
+        ow_address,
+        old_value: last_value,
+        new_value,
+    } = change;
 
-    let mut boards = mem::take(&mut sensor_devices.sensor_boards);
-    let (boards, changes) = tokio::task::spawn_blocking(move || {
-        let mut changes = Vec::new();
-        for (idx, sb) in boards.iter_mut().enumerate() {
-            if let Some(new_value) = sb.read_state() {
-                if sb.last_value != Some(new_value) {
-                    changes.push((idx, sb.last_value, new_value));
-                    sb.last_value = Some(new_value);
-                }
-            }
-            //mandatory small delay between consecutive w1 bus reads (hardware requirement)
-            thread::sleep(Duration::from_micros(500));
+    let idx = match sensor_devices
+        .sensor_boards
+        .iter()
+        .position(|b| b.ow_family == ow_family && b.ow_address == ow_address)
+    {
+        Some(idx) => idx,
+        None => {
+            //metadata for this board isn't known (yet/anymore) -- e.g. a
+            //reload racing with an in-flight reading -- nothing to
+            //associate this change with, so just drop it
+            return;
         }
-        (boards, changes)
-    })
-    .await
-    .expect("sensor polling task panicked");
+    };
 
-    sensor_devices.sensor_boards = boards;
-
-    if changes.is_empty() {
-        return;
-    }
-
-    let kinds_cloned = sensor_devices.kinds.clone();
+    let kinds_cloned = &sensor_devices.kinds;
     let bits = [0u8, 2u8];
 
-    for (idx, last_value, new_value) in changes {
-        let (ow_family, ow_address) = {
-            let sb = &sensor_devices.sensor_boards[idx];
-            (sb.ow_family, sb.ow_address)
-        };
+    match last_value {
+        Some(last_value) => {
+            debug!(
+                "{}: change detected, old: {:#04x} new: {:#04x}",
+                get_w1_device_name(ow_family, ow_address),
+                last_value,
+                new_value
+            );
 
-        match last_value {
-            Some(last_value) => {
-                debug!(
-                    "{}: change detected, old: {:#04x} new: {:#04x}",
-                    get_w1_device_name(ow_family, ow_address),
-                    last_value,
-                    new_value
-                );
+            for bit in &bits {
+                if new_value & (1 << bit) != last_value & (1 << bit) {
+                    let (pio_name, sensor_clone) = {
+                        let sb = &sensor_devices.sensor_boards[idx];
+                        let sensor_opt = if *bit == 0 { &sb.pio_a } else { &sb.pio_b };
+                        let pio_name = if *bit == 0 { "PIOA" } else { "PIOB" };
+                        (
+                            pio_name,
+                            sensor_opt.as_ref().map(|s| {
+                                (
+                                    s.id_sensor,
+                                    s.id_kind,
+                                    s.name.clone(),
+                                    s.tags.clone(),
+                                    s.associated_relays.clone(),
+                                    s.associated_yeelights.clone(),
+                                )
+                            }),
+                        )
+                    };
 
-                for bit in &bits {
-                    if new_value & (1 << bit) != last_value & (1 << bit) {
-                        let (pio_name, sensor_clone) = {
-                            let sb = &sensor_devices.sensor_boards[idx];
-                            let sensor_opt = if *bit == 0 { &sb.pio_a } else { &sb.pio_b };
-                            let pio_name = if *bit == 0 { "PIOA" } else { "PIOB" };
-                            (
-                                pio_name,
-                                sensor_opt.as_ref().map(|s| {
-                                    (
-                                        s.id_sensor,
-                                        s.id_kind,
-                                        s.name.clone(),
-                                        s.tags.clone(),
-                                        s.associated_relays.clone(),
-                                        s.associated_yeelights.clone(),
-                                    )
-                                }),
-                            )
+                    if let Some((
+                        sensor_id,
+                        id_kind,
+                        sensor_name,
+                        sensor_tags,
+                        associated_relays,
+                        associated_yeelights,
+                    )) = sensor_clone
+                    {
+                        let task = DbTask {
+                            command: CommandCode::IncrementSensorCounter,
+                            value: Some(sensor_id),
                         };
+                        let _ = transmitter.send(task);
 
-                        if let Some((
+                        let kind_code = kinds_cloned.get(&id_kind).unwrap().clone();
+                        let on: bool = new_value & (1 << bit) != 0;
+
+                        let stop_processing = !state_machine.sensor_hook(
+                            &kind_code,
+                            &sensor_name,
+                            on,
+                            &sensor_tags,
+                            night,
+                            false,
+                            pending_tasks,
                             sensor_id,
-                            id_kind,
-                            sensor_name,
-                            sensor_tags,
-                            associated_relays,
-                            associated_yeelights,
-                        )) = sensor_clone
-                        {
-                            let task = DbTask {
-                                command: CommandCode::IncrementSensorCounter,
-                                value: Some(sensor_id),
-                            };
-                            let _ = transmitter.send(task);
-
-                            let kind_code = kinds_cloned.get(&id_kind).unwrap().clone();
-                            let on: bool = new_value & (1 << bit) != 0;
-
-                            let stop_processing = !state_machine.sensor_hook(
-                                &kind_code,
-                                &sensor_name,
-                                on,
-                                &sensor_tags,
-                                night,
-                                false,
-                                pending_tasks,
-                                sensor_id,
-                            );
-                            info!(
+                        );
+                        info!(
                                     "<green>{}</>: <b>{}</> <cyan>(</><magenta>sensor:{}|{}</><cyan>)</>, value: {:#04x}, {}</>{}",
                                     kind_code,
                                     sensor_name,
@@ -1752,102 +1854,101 @@ async fn poll_sensors(
                                     { if on { "<bold><green>active" } else { "<bright-black>inactive" } },
                                     { if stop_processing { ", <yellow>stopped processing</>" } else { "" } },
                                 );
-                            if stop_processing {
-                                continue;
-                            }
-
-                            if !associated_relays.is_empty() {
-                                relay_devices.relay_sensor_trigger(
-                                    &mut relays.relay,
-                                    state_machine,
-                                    &associated_relays,
-                                    &kind_code,
-                                    on,
-                                    night,
-                                );
-                            }
-
-                            if !associated_yeelights.is_empty() {
-                                relay_devices.yeelight_sensor_trigger(
-                                    &mut relays.relay,
-                                    state_machine,
-                                    transmitter,
-                                    &associated_yeelights,
-                                    &kind_code,
-                                    on,
-                                    night,
-                                );
-                            }
+                        if stop_processing {
+                            continue;
                         }
-                    }
-                }
 
-                //flush any relay boards that got a pending write from the triggers above
-                for rb in &mut relay_devices.relay_boards {
-                    if let Some(new_value) = rb.new_value {
-                        let old_value = rb.last_value.unwrap_or(DS2408_INITIAL_STATE);
-                        if new_value != old_value {
-                            for i in 0..=7 {
-                                if new_value & (1 << i as u8) != old_value & (1 << i as u8) {
-                                    if let Some(id) = rb.relay[i] {
-                                        if let Some(relay) =
-                                            relays.relay.iter_mut().find(|r| r.id == id)
-                                        {
-                                            relay.last_toggled = Some(Instant::now());
-                                            increment_relay_counter(transmitter, id);
-                                        }
-                                    }
-                                }
-                            }
-                            rb.save_state();
+                        if !associated_relays.is_empty() {
+                            relay_devices.relay_sensor_trigger(
+                                &mut relays.relay,
+                                state_machine,
+                                &associated_relays,
+                                &kind_code,
+                                on,
+                                night,
+                            );
+                        }
+
+                        if !associated_yeelights.is_empty() {
+                            relay_devices.yeelight_sensor_trigger(
+                                &mut relays.relay,
+                                state_machine,
+                                transmitter,
+                                &associated_yeelights,
+                                &kind_code,
+                                on,
+                                night,
+                            );
                         }
                     }
                 }
             }
-            None => {
-                //sensor read for the very first time
-                debug!(
-                    "{}: setting initial sensorboard value {:#04x}",
-                    get_w1_device_name(ow_family, ow_address),
-                    new_value
-                );
-                for bit in &bits {
-                    let (pio_name, sensor_clone) = {
-                        let sb = &sensor_devices.sensor_boards[idx];
-                        let sensor_opt = if *bit == 0 { &sb.pio_a } else { &sb.pio_b };
-                        let pio_name = if *bit == 0 { "PIOA" } else { "PIOB" };
-                        (
-                            pio_name,
-                            sensor_opt
-                                .as_ref()
-                                .map(|s| (s.id_sensor, s.id_kind, s.name.clone(), s.tags.clone())),
-                        )
-                    };
 
-                    if let Some((sensor_id, id_kind, sensor_name, sensor_tags)) = sensor_clone {
-                        let kind_code = kinds_cloned.get(&id_kind).unwrap().clone();
-                        let on: bool = new_value & (1 << bit) != 0;
-
-                        let _ = !state_machine.sensor_hook(
-                            &kind_code,
-                            &sensor_name,
-                            on,
-                            &sensor_tags,
-                            night,
-                            true,
-                            pending_tasks,
-                            sensor_id,
-                        );
-                        debug!(
-                            "initial state: {}: [{} {} {}]: {:#04x} on: {}",
-                            kind_code,
-                            get_w1_device_name(ow_family, ow_address),
-                            pio_name,
-                            sensor_name,
-                            new_value,
-                            on
-                        );
+            //flush any relay boards that got a pending write from the triggers above
+            for rb in &mut relay_devices.relay_boards {
+                if let Some(new_value) = rb.new_value {
+                    let old_value = rb.last_value.unwrap_or(DS2408_INITIAL_STATE);
+                    if new_value != old_value {
+                        for i in 0..=7 {
+                            if new_value & (1 << i as u8) != old_value & (1 << i as u8) {
+                                if let Some(id) = rb.relay[i] {
+                                    if let Some(relay) =
+                                        relays.relay.iter_mut().find(|r| r.id == id)
+                                    {
+                                        relay.last_toggled = Some(Instant::now());
+                                        increment_relay_counter(transmitter, id);
+                                    }
+                                }
+                            }
+                        }
+                        rb.save_state();
                     }
+                }
+            }
+        }
+        None => {
+            //sensor read for the very first time
+            debug!(
+                "{}: setting initial sensorboard value {:#04x}",
+                get_w1_device_name(ow_family, ow_address),
+                new_value
+            );
+            for bit in &bits {
+                let (pio_name, sensor_clone) = {
+                    let sb = &sensor_devices.sensor_boards[idx];
+                    let sensor_opt = if *bit == 0 { &sb.pio_a } else { &sb.pio_b };
+                    let pio_name = if *bit == 0 { "PIOA" } else { "PIOB" };
+                    (
+                        pio_name,
+                        sensor_opt
+                            .as_ref()
+                            .map(|s| (s.id_sensor, s.id_kind, s.name.clone(), s.tags.clone())),
+                    )
+                };
+
+                if let Some((sensor_id, id_kind, sensor_name, sensor_tags)) = sensor_clone {
+                    let kind_code = kinds_cloned.get(&id_kind).unwrap().clone();
+                    let on: bool = new_value & (1 << bit) != 0;
+
+                    let _ = !state_machine.sensor_hook(
+                        &kind_code,
+                        &sensor_name,
+                        on,
+                        &sensor_tags,
+                        night,
+                        true,
+                        pending_tasks,
+                        sensor_id,
+                    );
+                    debug!(
+                        "initial state: {}: [{} {} {}]: {:#04x} on: {}",
+                        kind_code,
+                        get_w1_device_name(ow_family, ow_address),
+                        pio_name,
+                        sensor_name,
+                        new_value,
+                        on
+                    );
                 }
             }
         }
@@ -2130,11 +2231,15 @@ fn check_auto_off(
 
 impl OneWire {
     //Runs as a normal async task (spawned into the same tokio JoinSet as the
-    //other workers, no dedicated std::thread anymore). The only blocking work
-    //-- sysfs sensor reads -- is confined to spawn_blocking inside
-    //poll_sensors(), so this task never stalls the shared runtime, and
-    //sensor_devices/relay_devices/relays need no lock since nothing else
-    //ever touches them.
+    //other workers, no dedicated std::thread anymore). The actual blocking
+    //sysfs I/O lives entirely in a single long-lived sensor_poller_thread,
+    //spawned once below via spawn_blocking for the whole lifetime of this
+    //task (not per-iteration): it owns its own private SensorBoard list and
+    //streams detected changes back over a channel. This coordinator loop
+    //only ever reads sensor_devices for metadata and never touches a sysfs
+    //file itself, so it can never be stalled by slow w1 bus I/O, and nothing
+    //here needs a lock since sensor_devices/relay_devices/relays are owned
+    //solely by this loop.
     pub async fn worker(
         mut self,
         worker_cancel_flag: Arc<AtomicBool>,
@@ -2142,6 +2247,40 @@ impl OneWire {
         rfid_pending_tags: Arc<RwLock<Vec<u32>>>,
     ) -> std::result::Result<(), WorkerError> {
         info!("{}: Starting task", self.name);
+
+        //channel for pushing fresh (ow_family, ow_address) board lists to the
+        //poller thread whenever a device reload rebuilds sensor_devices, and
+        //the channel the poller reports detected changes back on
+        let (poller_boards_tx, poller_boards_rx): (
+            Sender<Vec<(u8, u64)>>,
+            Receiver<Vec<(u8, u64)>>,
+        ) = flume::unbounded();
+        let (sensor_change_tx, sensor_change_rx): (
+            Sender<SensorBoardChange>,
+            Receiver<SensorBoardChange>,
+        ) = flume::unbounded();
+
+        let poller_cancel_flag = worker_cancel_flag.clone();
+        let poller_name = self.name.clone();
+        tokio::task::spawn_blocking(move || {
+            sensor_poller_thread(
+                poller_boards_rx,
+                sensor_change_tx,
+                poller_cancel_flag,
+                poller_name,
+            );
+        });
+        //if there's already device data loaded (shouldn't normally happen
+        //this early, but keeps the poller in sync in all cases), forward it
+        if !self.sensor_devices.sensor_boards.is_empty() {
+            let boards: Vec<(u8, u64)> = self
+                .sensor_devices
+                .sensor_boards
+                .iter()
+                .map(|b| (b.ow_family, b.ow_address))
+                .collect();
+            let _ = poller_boards_tx.send(boards);
+        }
 
         match &ethlcd {
             Some(device) => {
@@ -2190,7 +2329,8 @@ impl OneWire {
                 break;
             }
 
-            //apply any device reload(s) sent by the database task
+            //apply any device reload(s) sent by the database task (this also
+            //forwards the fresh board address list to the poller thread)
             while let Ok(data) = self.reload_receiver.try_recv() {
                 apply_reload(
                     &mut self.sensor_devices,
@@ -2198,6 +2338,7 @@ impl OneWire {
                     &mut self.relays,
                     &mut state_machine,
                     data,
+                    &poller_boards_tx,
                     &self.name,
                 );
             }
@@ -2228,17 +2369,57 @@ impl OneWire {
                 }
             }
 
-            poll_sensors(
-                &mut self.sensor_devices,
-                &mut self.relay_devices,
-                &mut self.relays,
-                &mut state_machine,
-                &self.transmitter,
-                &mut pending_tasks,
-                night,
-                &self.name,
-            )
-            .await;
+            //wait for the next sensor change (this also paces the loop,
+            //replacing the old blocking-read-driven pacing); a 200ms cap
+            //keeps the periodic checks below (day/night, auto-off, rfid)
+            //ticking even when nothing changed on the bus
+            match tokio::time::timeout(Duration::from_millis(200), sensor_change_rx.recv_async())
+                .await
+            {
+                Ok(Ok(change)) => {
+                    apply_sensor_change(
+                        &self.sensor_devices,
+                        &mut self.relay_devices,
+                        &mut self.relays,
+                        &mut state_machine,
+                        &self.transmitter,
+                        &mut pending_tasks,
+                        night,
+                        &self.name,
+                        change,
+                    );
+                    //drain anything else that piled up in the meantime so a
+                    //burst of changes is applied together, same as a single
+                    //poll pass used to do
+                    while let Ok(change) = sensor_change_rx.try_recv() {
+                        apply_sensor_change(
+                            &self.sensor_devices,
+                            &mut self.relay_devices,
+                            &mut self.relays,
+                            &mut state_machine,
+                            &self.transmitter,
+                            &mut pending_tasks,
+                            night,
+                            &self.name,
+                            change,
+                        );
+                    }
+                }
+                Ok(Err(_)) => {
+                    //poller thread is gone (panicked?) -- log once in a
+                    //while so this doesn't spam, but keep the rest of the
+                    //coordinator (relays/tasks/rfid/etc.) running
+                    error!(
+                        "{}: sensor poller channel disconnected, no more sensor readings will arrive",
+                        self.name
+                    );
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                }
+                Err(_) => {
+                    //no sensor change within the timeout -- fall through to
+                    //the periodic checks below
+                }
+            }
 
             //checking day/night
             if night_check.is_some()
