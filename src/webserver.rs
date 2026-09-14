@@ -163,6 +163,11 @@ fn render_status_page(devices: Option<Vec<DeviceStatus>>) -> String {
                 };
                 let until = match d.remaining {
                     Some(remaining) => format_until(remaining),
+                    //override with no stop_after means "stays like this
+                    //until manually changed" -- there's no ETA to show,
+                    //so use an infinity symbol rather than a bare "-",
+                    //which would be indistinguishable from "not toggled"
+                    None if d.override_mode => "∞".to_string(),
                     None => "-".to_string(),
                 };
                 rows.push_str(&format!(
