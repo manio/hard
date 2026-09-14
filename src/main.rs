@@ -150,6 +150,8 @@ async fn main() {
         Sender<onewire::DeviceReloadData>,
         Receiver<onewire::DeviceReloadData>,
     ) = flume::unbounded(); //database -> onewire device-reload comm channel
+    let (status_tx, status_rx): (Sender<onewire::StatusQuery>, Receiver<onewire::StatusQuery>) =
+        flume::unbounded(); //webserver -> onewire status-query comm channel
 
     //ethlcd struct
     let ethlcd = match get_config_string("ethlcd_host", None) {
@@ -203,6 +205,7 @@ async fn main() {
             ow_receiver: ow_rx,
             lcd_transmitter: lcd_tx.clone(),
             reload_receiver: reload_rx,
+            status_receiver: status_rx,
             sensor_devices,
             relay_devices,
             relays,
@@ -233,6 +236,7 @@ async fn main() {
             name: "webserver".to_string(),
             ow_transmitter: ow_tx,
             db_transmitter: tx.clone(),
+            status_transmitter: status_tx,
         };
         let worker_cancel_flag = cancel_flag.clone();
         let webserver_future = async move { webserver.worker(worker_cancel_flag).await };

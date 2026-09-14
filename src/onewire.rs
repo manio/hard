@@ -1539,12 +1539,105 @@ impl StateMachine {
     }
 }
 
+//what kind of Device a DeviceStatus entry describes -- relays and yeelights
+//share the same Device struct (override_mode/last_toggled/stop_after), but
+//"is it currently on" is read from a different place for each
+#[derive(Clone, Copy, PartialEq)]
+pub enum DeviceStatusKind {
+    Relay,
+    Yeelight,
+}
+
+//one entry per relay/yeelight currently away from its default (off,
+//non-override) state. Built by collect_device_status() and handed back over
+//a StatusQuery's oneshot channel -- this is the only way the webserver task
+//gets to see coordinator state, since sensor_devices/relay_devices/relays
+//are owned solely by the OneWire coordinator loop and are never behind a
+//lock (see the OneWire struct's own doc comment below).
+#[derive(Clone)]
+pub struct DeviceStatus {
+    pub id: i32,
+    pub name: String,
+    pub kind: DeviceStatusKind,
+    pub is_on: bool,
+    pub override_mode: bool,
+    pub remaining: Option<Duration>, //time left until auto turn-off, if known
+}
+
+//sent by the webserver task to ask the coordinator for a snapshot of
+//non-default device state; the coordinator answers once, over reply_tx
+pub struct StatusQuery {
+    pub reply_tx: tokio::sync::oneshot::Sender<Vec<DeviceStatus>>,
+}
+
+//Builds the "what's currently non-default" snapshot. A relay/yeelight is
+//included if it's on, or in override_mode (a switch/remote toggle holding it
+//away from automatic control) -- either condition means "not just sitting
+//in its normal automatic state" and worth showing on the status page.
+//remaining is computed from last_toggled (a monotonic Instant) and
+//stop_after (a relative Duration), never converted to wall-clock time here
+//-- the caller adds it to SystemTime::now() if it wants an ETA to display,
+//since Instant itself carries no wall-clock meaning.
+fn collect_device_status(relay_devices: &RelayDevices, relays: &Relays) -> Vec<DeviceStatus> {
+    let mut result = Vec::new();
+
+    let remaining_for = |dev: &Device| -> Option<Duration> {
+        let stop_after = dev.stop_after?;
+        let elapsed = dev.last_toggled?.elapsed();
+        stop_after.checked_sub(elapsed)
+    };
+
+    for rb in &relay_devices.relay_boards {
+        let actual_state = rb.get_actual_state();
+        for (bit, id) in rb.relay.iter().enumerate() {
+            let id = match id {
+                Some(id) => *id,
+                None => continue,
+            };
+            //active-low: bit clear means the relay is ON (see e.g.
+            //check_day_night()/process_pending_tasks() elsewhere in this
+            //file, which flip bits the same way)
+            let is_on = actual_state & (1 << bit as u8) == 0;
+            if let Some(dev) = relays.relay.iter().find(|r| r.id == id) {
+                if is_on || dev.override_mode {
+                    result.push(DeviceStatus {
+                        id,
+                        name: dev.name.clone(),
+                        kind: DeviceStatusKind::Relay,
+                        is_on,
+                        override_mode: dev.override_mode,
+                        remaining: remaining_for(dev),
+                    });
+                }
+            }
+        }
+    }
+
+    for yeelight in &relay_devices.yeelight {
+        if let Some(dev) = relays.relay.iter().find(|r| r.id == yeelight.id) {
+            if yeelight.powered_on || dev.override_mode {
+                result.push(DeviceStatus {
+                    id: yeelight.id,
+                    name: dev.name.clone(),
+                    kind: DeviceStatusKind::Yeelight,
+                    is_on: yeelight.powered_on,
+                    override_mode: dev.override_mode,
+                    remaining: remaining_for(dev),
+                });
+            }
+        }
+    }
+
+    result
+}
+
 pub struct OneWire {
     pub name: String,
     pub transmitter: Sender<DbTask>,
     pub ow_receiver: Receiver<OneWireTask>,
     pub lcd_transmitter: Sender<LcdTask>,
     pub reload_receiver: Receiver<DeviceReloadData>,
+    pub status_receiver: Receiver<StatusQuery>,
     //owned directly: this coordinator task is the sole owner/mutator of all
     //three, so no lock is needed at all (the database task only ever *sends*
     //a fresh snapshot over reload_receiver, it never touches these directly)
@@ -2490,6 +2583,15 @@ impl OneWire {
                     .cesspool_level
                     .level
                     .resize(self.sensor_devices.max_cesspool_level, None);
+            }
+
+            //answer any pending status-page queries from the webserver task
+            //with a fresh snapshot; if the requester (an HTTP handler) timed
+            //out and dropped its receiver already, the send below just fails
+            //silently -- nothing to clean up on our side
+            while let Ok(query) = self.status_receiver.try_recv() {
+                let status = collect_device_status(&self.relay_devices, &self.relays);
+                let _ = query.reply_tx.send(status);
             }
 
             //drain all currently queued external tasks (garage beep / night-prolong
