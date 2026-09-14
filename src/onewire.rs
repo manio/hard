@@ -1879,7 +1879,8 @@ fn sensor_poller_thread(
                     }
                 }
             }
-            //mandatory small delay between consecutive w1 bus reads (hardware requirement)
+            // Throttle consecutive sysfs/w1 reads. The 1-Wire protocol timing
+            // itself is handled by the kernel w1 master driver.
             thread::sleep(Duration::from_micros(500));
         }
     }
