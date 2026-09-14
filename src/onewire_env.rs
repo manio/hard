@@ -5,13 +5,9 @@ use crate::onewire::{
 use flume::Sender;
 use simplelog::*;
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
-use std::{fs, thread};
 
 pub const TEMP_CHECK_INTERVAL_SECS: f32 = 300.0; //secs between measuring temperature
 pub const HUMID_CHECK_INTERVAL_SECS: f32 = 60.0; //secs between measuring humidity
@@ -29,7 +25,6 @@ pub struct EnvSensor {
     pub associated_yeelights: Vec<i32>,
     pub ow_family: u8,
     pub ow_address: u64,
-    pub file: Option<File>,
 }
 
 impl EnvSensor {
@@ -40,179 +35,155 @@ impl EnvSensor {
     fn is_humid_sensor(&self) -> bool {
         self.ow_family == FAMILY_CODE_DS2438
     }
+}
 
-    fn open(&mut self) {
-        if self.is_temp_sensor() {
-            let path = format!(
-                "{}/{}/w1_slave",
-                W1_ROOT_PATH,
-                get_w1_device_name(self.ow_family, self.ow_address)
+//Free functions rather than &self/&mut self methods on EnvSensor, and no
+//cached file handle anymore (the previous open()/self.file did one syscall
+//less every 300s/60s check -- not worth it): both are now async tokio::fs
+//I/O, and the caller (OneWireEnv::worker()) snapshots the (family, address)
+//pairs it needs out of the env_sensor_devices lock *before* calling these,
+//then releases the lock immediately. That's the point of taking plain
+//values here instead of &EnvSensor -- holding any guard from that
+//std::sync::RwLock across an .await would risk stalling database.rs's
+//load_devices() (which also needs to write-lock the same
+//Arc<RwLock<EnvSensorDevices>> on every reload) for as long as this I/O
+//takes.
+async fn read_temperature(ow_family: u8, ow_address: u64) -> Option<f32> {
+    let path = format!(
+        "{}/{}/w1_slave",
+        W1_ROOT_PATH,
+        get_w1_device_name(ow_family, ow_address)
+    );
+
+    let data = match tokio::fs::read_to_string(&path).await {
+        Ok(data) => data,
+        Err(e) => {
+            error!(
+                "{}: error reading: {:?}",
+                get_w1_device_name(ow_family, ow_address),
+                e,
             );
-            let data_path = Path::new(&path);
-            info!(
-                "{}: opening temperature sensor file: {}",
-                get_w1_device_name(self.ow_family, self.ow_address),
-                data_path.display()
+            return None;
+        }
+    };
+
+    debug!(
+        "{}: temperature data: {}",
+        get_w1_device_name(ow_family, ow_address),
+        data,
+    );
+    for line in data.lines() {
+        if line.contains("crc") {
+            if line.contains("YES") {
+                continue;
+            } else if line.contains("NO") {
+                error!(
+                    "{}: got CRC error in temperature data",
+                    get_w1_device_name(ow_family, ow_address),
+                );
+                break;
+            }
+        } else if line.contains("t=") {
+            let v: Vec<&str> = line.split("=").collect();
+            let val = match v.get(1) {
+                Some(&temp_value) => temp_value.parse::<f32>().ok(),
+                _ => None,
+            };
+            return val.and_then(|x| Some(x / 1000.0));
+        }
+    }
+
+    None
+}
+
+async fn read_humidity(ow_family: u8, ow_address: u64) -> Option<(f32, f32)> {
+    let mut temp_data: Option<f32> = None;
+    let mut vdd_data: Option<f32> = None;
+    let mut vad_data: Option<f32> = None;
+
+    let temp_path = format!(
+        "{}/{}/temperature",
+        W1_ROOT_PATH,
+        get_w1_device_name(ow_family, ow_address)
+    );
+    let vdd_path = format!(
+        "{}/{}/vdd",
+        W1_ROOT_PATH,
+        get_w1_device_name(ow_family, ow_address)
+    );
+    let vad_path = format!(
+        "{}/{}/vad",
+        W1_ROOT_PATH,
+        get_w1_device_name(ow_family, ow_address)
+    );
+
+    match tokio::fs::read_to_string(&temp_path).await {
+        Ok(data) => {
+            temp_data = data.trim().parse::<f32>().ok();
+            debug!(
+                "{}: temperature data: {:?}, parsed: {:?}",
+                get_w1_device_name(ow_family, ow_address),
+                data.trim(),
+                temp_data,
             );
-            self.file = File::open(data_path).ok();
-        } else {
-            info!(
-                "{}: not a temperature sensor, skipping file open",
-                get_w1_device_name(self.ow_family, self.ow_address),
+        }
+        Err(e) => {
+            error!(
+                "{}: error reading: {:?}",
+                get_w1_device_name(ow_family, ow_address),
+                e,
+            );
+        }
+    }
+    match tokio::fs::read_to_string(&vdd_path).await {
+        Ok(data) => {
+            vdd_data = data.trim().parse::<f32>().ok();
+            debug!(
+                "{}: vdd data: {:?}, parsed: {:?}",
+                get_w1_device_name(ow_family, ow_address),
+                data.trim(),
+                vdd_data,
+            );
+        }
+        Err(e) => {
+            error!(
+                "{}: error reading: {:?}",
+                get_w1_device_name(ow_family, ow_address),
+                e,
+            );
+        }
+    }
+    match tokio::fs::read_to_string(&vad_path).await {
+        Ok(data) => {
+            vad_data = data.trim().parse::<f32>().ok();
+            debug!(
+                "{}: vad data: {:?}, parsed: {:?}",
+                get_w1_device_name(ow_family, ow_address),
+                data.trim(),
+                vad_data,
+            );
+        }
+        Err(e) => {
+            error!(
+                "{}: error reading: {:?}",
+                get_w1_device_name(ow_family, ow_address),
+                e,
             );
         }
     }
 
-    fn read_temperature(&mut self) -> Option<f32> {
-        if self.file.is_none() {
-            self.open();
-        }
+    if temp_data.is_some() && vdd_data.is_some() && vad_data.is_some() {
+        let temp = temp_data.unwrap() / 256.0;
+        let vdd = vdd_data.unwrap() / 100.0;
+        let vad = vad_data.unwrap() / 100.0;
 
-        match &mut self.file {
-            Some(file) => {
-                match file.seek(SeekFrom::Start(0)) {
-                    Err(e) => {
-                        error!(
-                            "{}: file seek error: {:?}",
-                            get_w1_device_name(self.ow_family, self.ow_address),
-                            e,
-                        );
-                    }
-                    _ => {}
-                }
-                let mut data = String::new();
-                match file.read_to_string(&mut data) {
-                    Ok(_) => {
-                        debug!(
-                            "{}: temperature data: {}",
-                            get_w1_device_name(self.ow_family, self.ow_address),
-                            data,
-                        );
-                        for line in data.lines() {
-                            if line.contains("crc") {
-                                if line.contains("YES") {
-                                    continue;
-                                } else if line.contains("NO") {
-                                    error!(
-                                        "{}: got CRC error in temperature data",
-                                        get_w1_device_name(self.ow_family, self.ow_address),
-                                    );
-                                    break;
-                                }
-                            } else if line.contains("t=") {
-                                let v: Vec<&str> = line.split("=").collect();
-                                let val = match v.get(1) {
-                                    Some(&temp_value) => temp_value.parse::<f32>().ok(),
-                                    _ => None,
-                                };
-                                return val.and_then(|x| Some(x / 1000.0));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            "{}: error reading: {:?}",
-                            get_w1_device_name(self.ow_family, self.ow_address),
-                            e,
-                        );
-                    }
-                }
-            }
-            None => (),
-        }
+        //magic computation here, see the HIH-4000-003 pdf for details
+        let humid = (vad / vdd - 0.16) / 0.0062 / (1.0546 - 0.00216 * temp);
 
-        return None;
+        return Some((humid, temp));
     }
 
-    fn read_humidity(&mut self) -> Option<(f32, f32)> {
-        let mut temp_data: Option<f32> = None;
-        let mut vdd_data: Option<f32> = None;
-        let mut vad_data: Option<f32> = None;
-
-        let temp_path = format!(
-            "{}/{}/temperature",
-            W1_ROOT_PATH,
-            get_w1_device_name(self.ow_family, self.ow_address)
-        );
-        let vdd_path = format!(
-            "{}/{}/vdd",
-            W1_ROOT_PATH,
-            get_w1_device_name(self.ow_family, self.ow_address)
-        );
-        let vad_path = format!(
-            "{}/{}/vad",
-            W1_ROOT_PATH,
-            get_w1_device_name(self.ow_family, self.ow_address)
-        );
-
-        match fs::read_to_string(temp_path) {
-            Ok(data) => {
-                temp_data = data.trim().parse::<f32>().ok();
-                debug!(
-                    "{}: temperature data: {:?}, parsed: {:?}",
-                    get_w1_device_name(self.ow_family, self.ow_address),
-                    data.trim(),
-                    temp_data,
-                );
-            }
-            Err(e) => {
-                error!(
-                    "{}: error reading: {:?}",
-                    get_w1_device_name(self.ow_family, self.ow_address),
-                    e,
-                );
-            }
-        }
-        match fs::read_to_string(vdd_path) {
-            Ok(data) => {
-                vdd_data = data.trim().parse::<f32>().ok();
-                debug!(
-                    "{}: vdd data: {:?}, parsed: {:?}",
-                    get_w1_device_name(self.ow_family, self.ow_address),
-                    data.trim(),
-                    vdd_data,
-                );
-            }
-            Err(e) => {
-                error!(
-                    "{}: error reading: {:?}",
-                    get_w1_device_name(self.ow_family, self.ow_address),
-                    e,
-                );
-            }
-        }
-        match fs::read_to_string(vad_path) {
-            Ok(data) => {
-                vad_data = data.trim().parse::<f32>().ok();
-                debug!(
-                    "{}: vad data: {:?}, parsed: {:?}",
-                    get_w1_device_name(self.ow_family, self.ow_address),
-                    data.trim(),
-                    vad_data,
-                );
-            }
-            Err(e) => {
-                error!(
-                    "{}: error reading: {:?}",
-                    get_w1_device_name(self.ow_family, self.ow_address),
-                    e,
-                );
-            }
-        }
-
-        if temp_data.is_some() && vdd_data.is_some() && vad_data.is_some() {
-            let temp = temp_data.unwrap() / 256.0;
-            let vdd = vdd_data.unwrap() / 100.0;
-            let vad = vad_data.unwrap() / 100.0;
-
-            //magic computation here, see the HIH-4000-003 pdf for details
-            let humid = (vad / vdd - 0.16) / 0.0062 / (1.0546 - 0.00216 * temp);
-
-            return Some((humid, temp));
-        }
-
-        return None;
-    }
+    None
 }
 
 pub struct EnvSensorDevices {
@@ -233,7 +204,7 @@ impl EnvSensorDevices {
         tags: Vec<String>,
     ) {
         //create a env sensor
-        let mut env_sensor = EnvSensor {
+        let env_sensor = EnvSensor {
             id_sensor,
             id_kind,
             name,
@@ -245,9 +216,7 @@ impl EnvSensorDevices {
                 None => FAMILY_CODE_DS18B20,
             },
             ow_address: address,
-            file: None,
         };
-        env_sensor.open();
         self.env_sensors.push(env_sensor);
     }
 }
@@ -274,26 +243,31 @@ impl OneWireEnv {
                 last_temp_check = Instant::now();
 
                 debug!("measuring temperatures...");
-                {
-                    let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
+                //snapshot just the (name, family, address) of temp sensors
+                //under a short-lived read lock, then release it *before*
+                //doing any I/O below -- database.rs's load_devices() needs
+                //to write-lock this same Arc<RwLock<EnvSensorDevices>> on
+                //every reload, and holding any guard here across an .await
+                //would risk stalling that reload for as long as this loop's
+                //I/O takes
+                let targets: Vec<(String, u8, u64)> = {
+                    let env_sensor_dev = self.env_sensor_devices.read().unwrap();
+                    env_sensor_dev
+                        .env_sensors
+                        .iter()
+                        .filter(|s| s.is_temp_sensor())
+                        .map(|s| (s.name.clone(), s.ow_family, s.ow_address))
+                        .collect()
+                };
 
-                    //fixme: do we really need to clone this HashMap to use it below?
-                    let _kinds_cloned = env_sensor_dev.kinds.clone();
-
-                    for sensor in &mut env_sensor_dev.env_sensors {
-                        if sensor.is_temp_sensor() {
-                            match sensor.read_temperature() {
-                                Some(temp) => {
-                                    info!(
-                                        "{}: {}: 🌡️ temperature: {} °C",
-                                        get_w1_device_name(sensor.ow_family, sensor.ow_address),
-                                        sensor.name,
-                                        temp,
-                                    );
-                                }
-                                _ => {}
-                            }
-                        }
+                for (name, ow_family, ow_address) in targets {
+                    if let Some(temp) = read_temperature(ow_family, ow_address).await {
+                        info!(
+                            "{}: {}: 🌡️ temperature: {} °C",
+                            get_w1_device_name(ow_family, ow_address),
+                            name,
+                            temp,
+                        );
                     }
                 }
             }
@@ -302,63 +276,65 @@ impl OneWireEnv {
                 last_humid_check = Instant::now();
 
                 debug!("measuring humidity...");
-                {
-                    let mut env_sensor_dev = self.env_sensor_devices.write().unwrap();
+                //same snapshot-then-release pattern as the temperature
+                //check above
+                let targets: Vec<(String, u8, u64, Vec<String>, Vec<i32>)> = {
+                    let env_sensor_dev = self.env_sensor_devices.read().unwrap();
+                    env_sensor_dev
+                        .env_sensors
+                        .iter()
+                        .filter(|s| s.is_humid_sensor())
+                        .map(|s| {
+                            (
+                                s.name.clone(),
+                                s.ow_family,
+                                s.ow_address,
+                                s.tags.clone(),
+                                s.associated_relays.clone(),
+                            )
+                        })
+                        .collect()
+                };
 
-                    //fixme: do we really need to clone this HashMap to use it below?
-                    let _kinds_cloned = env_sensor_dev.kinds.clone();
-
-                    for sensor in &mut env_sensor_dev.env_sensors {
-                        if sensor.is_humid_sensor() {
-                            match sensor.read_humidity() {
-                                Some(humid) => {
-                                    info!(
-                                        "{}: {}: 💧 humidity: {} %RH, 🌡️ temperature: {} °C",
-                                        get_w1_device_name(sensor.ow_family, sensor.ow_address),
-                                        sensor.name,
-                                        humid.0,
-                                        humid.1,
-                                    );
-                                    for tag in &sensor.tags {
-                                        if tag.starts_with("humid_threshold:") {
-                                            let v: Vec<&str> = tag.split(":").collect();
-                                            match v.get(1) {
-                                                Some(&float_string) => {
-                                                    match float_string.parse::<f32>() {
-                                                        Ok(threshold) => {
-                                                            if humid.0 > threshold {
-                                                                warn!(
-                                                                    "{}: {}: humidity: {} %RH is above {} %RH threshold, triggering associated relays...",
-                                                                    get_w1_device_name(sensor.ow_family, sensor.ow_address),
-                                                                    sensor.name,
-                                                                    humid.0,
-                                                                    threshold,
-                                                                );
-                                                                for id_relay in
-                                                                    &sensor.associated_relays
-                                                                {
-                                                                    let task = OneWireTask {
-                                                                        command: TaskCommand::TurnOnProlong,
-                                                                        id_relay: Some(*id_relay),
-                                                                        tag_group: None,
-                                                                        id_yeelight: None,
-                                                                        duration: None, //take default
-                                                                    };
-                                                                    let _ = self
-                                                                        .ow_transmitter
-                                                                        .send(task);
-                                                                }
-                                                            }
-                                                        }
-                                                        Err(_) => (),
-                                                    }
+                for (name, ow_family, ow_address, tags, associated_relays) in targets {
+                    if let Some(humid) = read_humidity(ow_family, ow_address).await {
+                        info!(
+                            "{}: {}: 💧 humidity: {} %RH, 🌡️ temperature: {} °C",
+                            get_w1_device_name(ow_family, ow_address),
+                            name,
+                            humid.0,
+                            humid.1,
+                        );
+                        for tag in &tags {
+                            if tag.starts_with("humid_threshold:") {
+                                let v: Vec<&str> = tag.split(":").collect();
+                                match v.get(1) {
+                                    Some(&float_string) => match float_string.parse::<f32>() {
+                                        Ok(threshold) => {
+                                            if humid.0 > threshold {
+                                                warn!(
+                                                    "{}: {}: humidity: {} %RH is above {} %RH threshold, triggering associated relays...",
+                                                    get_w1_device_name(ow_family, ow_address),
+                                                    name,
+                                                    humid.0,
+                                                    threshold,
+                                                );
+                                                for id_relay in &associated_relays {
+                                                    let task = OneWireTask {
+                                                        command: TaskCommand::TurnOnProlong,
+                                                        id_relay: Some(*id_relay),
+                                                        tag_group: None,
+                                                        id_yeelight: None,
+                                                        duration: None, //take default
+                                                    };
+                                                    let _ = self.ow_transmitter.send(task);
                                                 }
-                                                _ => (),
-                                            };
+                                            }
                                         }
-                                    }
-                                }
-                                _ => {}
+                                        Err(_) => (),
+                                    },
+                                    _ => (),
+                                };
                             }
                         }
                     }
