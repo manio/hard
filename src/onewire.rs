@@ -950,13 +950,24 @@ impl RelayDevices {
             }
         };
 
-        //if the initial_state is true, then we are turning on this relay
-        if initial_state {
-            let mut new_state = relay_board.last_value.unwrap_or(DS2408_INITIAL_STATE);
-            new_state = new_state & !(1 << bit as u8);
+        //Enforce initial_state on every reload, in both directions:
+        //initial_state=true clears the bit (relay ON), initial_state=false
+        //sets it (relay OFF). We read via get_actual_state() rather than
+        //last_value directly so that a pending new_value already set for
+        //another relay on this same board earlier in this same reload isn't
+        //clobbered (a board can host up to 8 relays/bits).
+        let actual_state = relay_board.get_actual_state();
+        let bit_mask = 1 << bit as u8;
+        let new_state = if initial_state {
+            actual_state & !bit_mask
+        } else {
+            actual_state | bit_mask
+        };
+        if new_state != actual_state {
             warn!(
-                "{}: Initial state is active for: {}: bit={} new state: {:#04x}",
+                "{}: Initial state is {} for: {}: bit={} new state: {:#04x}",
                 get_w1_device_name(relay_board.ow_family, relay_board.ow_address),
+                if initial_state { "active" } else { "inactive" },
                 name.clone(),
                 bit,
                 new_state,
