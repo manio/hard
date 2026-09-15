@@ -219,10 +219,15 @@ fn format_until(remaining: Duration) -> String {
     match chrono::Duration::from_std(remaining) {
         Ok(d) => {
             let eta = chrono::Local::now() + d;
+            //humantime prints down to nanoseconds by default (e.g. "27m 45s
+            //974ms 322us 966ns"), which is both useless precision for a
+            //relay ETA and wide enough to wrap the column -- round to whole
+            //seconds first
+            let rounded = Duration::from_secs(remaining.as_secs());
             format!(
                 "{} (in {})",
                 eta.format("%Y-%m-%d %H:%M:%S"),
-                humantime::format_duration(remaining)
+                humantime::format_duration(rounded)
             )
         }
         Err(_) => "-".to_string(),
@@ -325,8 +330,8 @@ fn render_shell(body: String) -> String {
 body {{ font-family: sans-serif; margin: 2em; color: #222; }}
 h1 {{ margin-bottom: 0.2em; }}
 h2 {{ margin-top: 1.6em; }}
-table {{ border-collapse: collapse; width: 100%; max-width: 60em; }}
-th, td {{ border: 1px solid #ccc; padding: 0.4em 0.8em; text-align: left; }}
+table {{ border-collapse: collapse; width: 100%; }}
+th, td {{ border: 1px solid #ccc; padding: 0.4em 0.8em; text-align: left; white-space: nowrap; }}
 th {{ background: #eee; }}
 .on {{ color: #1a7a1a; font-weight: bold; }}
 .off {{ color: #888; }}
