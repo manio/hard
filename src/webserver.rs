@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::database::{CommandCode, DbTask};
+use crate::deye::{Category, DeyeStatusQuery, Parameter};
 use crate::onewire::{DeviceStatus, DeviceStatusKind, OneWireTask, StatusQuery, TaskCommand};
 use flume::Sender;
 use rocket::fairing::{Fairing, Info, Kind};
@@ -79,6 +80,7 @@ pub struct WebServer {
     pub ow_transmitter: Sender<OneWireTask>,
     pub db_transmitter: Sender<DbTask>,
     pub status_transmitter: Sender<StatusQuery>,
+    pub deye_status_transmitter: Sender<DeyeStatusQuery>,
 }
 
 #[get("/hello")]
@@ -167,6 +169,29 @@ async fn query_status(transmitters: &State<Transmitters>) -> Option<Vec<DeviceSt
 pub async fn status(transmitters: &State<Transmitters>) -> content::RawHtml<String> {
     let devices = query_status(transmitters).await;
     content::RawHtml(render_status_page(devices))
+}
+
+//Lists every parameter from the deye inverter's last successful poll,
+//grouped by category (PV/Battery/Grid/...). Same request/response pattern
+//as /status: deye's live values live exclusively inside Deye::worker()'s own
+//state, so this sends a DeyeStatusQuery and awaits its one-shot reply,
+//capped by a timeout in case the deye task isn't configured/running at all
+//(disable via omitting [deye] host in hard.conf) or is busy reconnecting.
+#[get("/deye")]
+pub async fn deye_status(
+    deye_transmitter: &State<Sender<DeyeStatusQuery>>,
+) -> content::RawHtml<String> {
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+    let sent = deye_transmitter.send(DeyeStatusQuery { reply_tx }).is_ok();
+
+    if !sent {
+        return content::RawHtml(render_deye_page(None));
+    }
+
+    match tokio::time::timeout(Duration::from_secs(5), reply_rx).await {
+        Ok(Ok(params)) => content::RawHtml(render_deye_page(Some(params))),
+        _ => content::RawHtml(render_deye_page(None)),
+    }
 }
 
 fn kind_str(kind: DeviceStatusKind) -> &'static str {
@@ -316,6 +341,86 @@ fn render_table(devices: &[&DeviceStatus], empty_message: &str) -> String {
     )
 }
 
+fn category_label(cat: Category) -> &'static str {
+    match cat {
+        Category::Device => "Device",
+        Category::Pv => "PV",
+        Category::Battery => "Battery",
+        Category::Grid => "Grid",
+        Category::Load => "Load",
+        Category::Inverter => "Inverter",
+        Category::Generator => "Generator",
+        Category::Ups => "UPS",
+        Category::Tou => "TOU",
+        Category::WorkMode => "Work Mode",
+    }
+}
+
+fn render_deye_table(params: &[&Parameter]) -> String {
+    let mut rows = String::new();
+    for p in params {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            html_escape(p.name),
+            html_escape(&p.get_text_value()),
+            html_escape(p.unit.unwrap_or("")),
+        ));
+    }
+    format!(
+        "<table>\n<tr><th>Name</th><th>Value</th><th>Unit</th></tr>\n{}</table>",
+        rows
+    )
+}
+
+fn render_deye_page(params: Option<Vec<Parameter>>) -> String {
+    let params = match params {
+        None => {
+            return render_shell(
+                r#"<p class="error">Could not reach the deye task (it may not be configured, or busy) -- try again in a moment.</p>"#
+                    .to_string(),
+            )
+        }
+        Some(p) => p,
+    };
+
+    if params.is_empty() {
+        return render_shell(
+            "<p>No readings yet -- the deye task hasn't completed its first poll.</p>".to_string(),
+        );
+    }
+
+    //same order the sections appear in deye.rs's param_table(), not
+    //alphabetical -- keeps related registers grouped the way whoever wrote
+    //that table intended
+    let categories = [
+        Category::Device,
+        Category::Pv,
+        Category::Battery,
+        Category::Grid,
+        Category::Load,
+        Category::Inverter,
+        Category::Generator,
+        Category::Ups,
+        Category::Tou,
+        Category::WorkMode,
+    ];
+
+    let mut body = String::new();
+    for cat in categories {
+        //preserves param_table()'s original definition order within the
+        //category, since filter() on a Vec is stable
+        let rows: Vec<&Parameter> = params.iter().filter(|p| p.category == cat).collect();
+        if rows.is_empty() {
+            continue;
+        }
+        body.push_str(&format!("<h2>{}</h2>\n", category_label(cat)));
+        body.push_str(&render_deye_table(&rows));
+        body.push('\n');
+    }
+
+    render_shell(body)
+}
+
 fn render_status_page(devices: Option<Vec<DeviceStatus>>) -> String {
     let devices = match devices {
         None => {
@@ -393,6 +498,10 @@ impl WebServer {
             self.db_transmitter.clone(),
             self.status_transmitter.clone(),
         )));
+        //flume::Sender is already Clone + Send + Sync and sends via &self,
+        //so this one doesn't need the Arc<Mutex<...>> treatment the tuple
+        //above gets -- it's managed as its own independent Rocket State
+        let deye_transmitter = self.deye_status_transmitter.clone();
 
         info!("{}: Starting task", self.name);
         loop {
@@ -412,9 +521,18 @@ impl WebServer {
             let result = rocket::custom(figment)
                 .mount(
                     mount_point(),
-                    routes![hello, reload, fan_on, fan_off, status, device_action],
+                    routes![
+                        hello,
+                        reload,
+                        fan_on,
+                        fan_off,
+                        status,
+                        device_action,
+                        deye_status
+                    ],
                 )
                 .manage(transmitters.clone())
+                .manage(deye_transmitter.clone())
                 .attach(RequestLogger)
                 .launch()
                 .await;

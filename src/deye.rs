@@ -20,7 +20,7 @@
 // double-checking against the MODBUS RTU V105 doc before relying on them for writes.
 
 use crate::database::DeyeDailyYield;
-use flume::Sender;
+use flume::{Receiver, Sender};
 use influxdb::{Client, InfluxDbWriteable, Timestamp, Type};
 use io::ErrorKind;
 use simplelog::*;
@@ -247,19 +247,40 @@ impl Default for DeyeConfig {
     }
 }
 
-#[derive(Debug)]
+//Not Debug-derivable: last_params holds Parameter, which intentionally
+//doesn't derive Debug (see the comment on Parameter), and there's no
+//meaningful way to Debug-print a channel Receiver's queued contents anyway.
+//main.rs's startup log now prints deye.config (which does derive Debug)
+//instead of the whole Deye struct.
 pub struct Deye {
     pub config: DeyeConfig,
     pub poll_ok: u64,
     pub poll_errors: u64,
+    pub status_receiver: Receiver<DeyeStatusQuery>,
+    //snapshot of the values from the most recently completed successful
+    //poll, kept around purely so a status query arriving between two polls
+    //(or while disconnected/reconnecting) still gets an immediate answer
+    //instead of blocking on the next Modbus round-trip
+    last_params: Vec<Parameter>,
+}
+
+//sent by the webserver task to ask for a snapshot of the last-read inverter
+//parameters; answered once, over reply_tx. Same request/response pattern as
+//onewire::StatusQuery, and for the same reason: Deye::worker() owns its
+//state exclusively (no lock), so this is the only way another task gets to
+//see it.
+pub struct DeyeStatusQuery {
+    pub reply_tx: tokio::sync::oneshot::Sender<Vec<Parameter>>,
 }
 
 impl Deye {
-    pub fn new(config: DeyeConfig) -> Self {
+    pub fn new(config: DeyeConfig, status_receiver: Receiver<DeyeStatusQuery>) -> Self {
         Self {
             config,
             poll_ok: 0,
             poll_errors: 0,
+            status_receiver,
+            last_params: Vec::new(),
         }
     }
 
@@ -868,6 +889,14 @@ impl Deye {
                 break;
             }
 
+            //answer any status queries with whatever we have cached so far
+            //(possibly empty, if we've never completed a poll yet) -- don't
+            //make a /deye request wait on a live Modbus round-trip, and
+            //don't leave it hanging while we're disconnected/reconnecting
+            while let Ok(query) = self.status_receiver.try_recv() {
+                let _ = query.reply_tx.send(self.last_params.clone());
+            }
+
             let socket_addr = self.config.host_port.parse().unwrap();
             let slave = if self.config.dongle_connection { Slave(0x01) } else { Slave(0x00) };
 
@@ -992,6 +1021,12 @@ impl Deye {
                             terminated = true;
                         }
 
+                        //same as the outer loop's drain, just also reachable
+                        //while a connection is actually up
+                        while let Ok(query) = self.status_receiver.try_recv() {
+                            let _ = query.reply_tx.send(self.last_params.clone());
+                        }
+
                         if stats_interval.elapsed() > Duration::from_secs_f32(DEYE_STATS_DUMP_INTERVAL_SECS) {
                             stats_interval = Instant::now();
                             info!(
@@ -1036,6 +1071,7 @@ impl Deye {
                                 break;
                             } else {
                                 self.poll_ok += 1;
+                                self.last_params = params.clone();
                             }
 
                             for p in &params {
