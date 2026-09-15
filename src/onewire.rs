@@ -1570,14 +1570,14 @@ pub struct StatusQuery {
     pub reply_tx: tokio::sync::oneshot::Sender<Vec<DeviceStatus>>,
 }
 
-//Builds the "what's currently non-default" snapshot. A relay/yeelight is
-//included if it's on, or in override_mode (a switch/remote toggle holding it
-//away from automatic control) -- either condition means "not just sitting
-//in its normal automatic state" and worth showing on the status page.
-//remaining is computed from last_toggled (a monotonic Instant) and
-//stop_after (a relative Duration), never converted to wall-clock time here
-//-- the caller adds it to SystemTime::now() if it wants an ETA to display,
-//since Instant itself carries no wall-clock meaning.
+//Builds a full snapshot of every configured relay/yeelight (not just
+//non-default ones -- the webserver needs the complete list to render its
+//"all relays"/"all yeelights" sections, and filters down to "non-default"
+//itself for the summary section). remaining is computed from last_toggled
+//(a monotonic Instant) and stop_after (a relative Duration), never converted
+//to wall-clock time here -- the caller adds it to SystemTime::now() if it
+//wants an ETA to display, since Instant itself carries no wall-clock
+//meaning.
 fn collect_device_status(relay_devices: &RelayDevices, relays: &Relays) -> Vec<DeviceStatus> {
     let mut result = Vec::new();
 
@@ -1599,32 +1599,28 @@ fn collect_device_status(relay_devices: &RelayDevices, relays: &Relays) -> Vec<D
             //file, which flip bits the same way)
             let is_on = actual_state & (1 << bit as u8) == 0;
             if let Some(dev) = relays.relay.iter().find(|r| r.id == id) {
-                if is_on || dev.override_mode {
-                    result.push(DeviceStatus {
-                        id,
-                        name: dev.name.clone(),
-                        kind: DeviceStatusKind::Relay,
-                        is_on,
-                        override_mode: dev.override_mode,
-                        remaining: remaining_for(dev),
-                    });
-                }
+                result.push(DeviceStatus {
+                    id,
+                    name: dev.name.clone(),
+                    kind: DeviceStatusKind::Relay,
+                    is_on,
+                    override_mode: dev.override_mode,
+                    remaining: remaining_for(dev),
+                });
             }
         }
     }
 
     for yeelight in &relay_devices.yeelight {
         if let Some(dev) = relays.relay.iter().find(|r| r.id == yeelight.id) {
-            if yeelight.powered_on || dev.override_mode {
-                result.push(DeviceStatus {
-                    id: yeelight.id,
-                    name: dev.name.clone(),
-                    kind: DeviceStatusKind::Yeelight,
-                    is_on: yeelight.powered_on,
-                    override_mode: dev.override_mode,
-                    remaining: remaining_for(dev),
-                });
-            }
+            result.push(DeviceStatus {
+                id: yeelight.id,
+                name: dev.name.clone(),
+                kind: DeviceStatusKind::Yeelight,
+                is_on: yeelight.powered_on,
+                override_mode: dev.override_mode,
+                remaining: remaining_for(dev),
+            });
         }
     }
 

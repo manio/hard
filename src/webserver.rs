@@ -6,6 +6,7 @@ use crate::database::{CommandCode, DbTask};
 use crate::onewire::{DeviceStatus, DeviceStatusKind, OneWireTask, StatusQuery, TaskCommand};
 use flume::Sender;
 use rocket::response::content;
+use rocket::response::Redirect;
 use rocket::{get, routes, State};
 use simplelog::*;
 
@@ -75,38 +76,113 @@ pub fn fan_off(transmitters: &State<Transmitters>) -> String {
     "Turning OFF fan".to_string()
 }
 
-//Lists every relay/yeelight currently away from its default (off,
-//non-override) state -- e.g. a relay a PIR turned on and how much longer
-//it'll stay on, or a switch that's put something into override an hour ago.
-//
+//Sends a StatusQuery over the shared channel and awaits its one-shot reply.
 //The actual device state lives exclusively inside the onewire coordinator
 //task (no lock, by design -- see OneWire's doc comment in onewire.rs), so
-//this handler can't just read it directly: it sends a StatusQuery over the
-//shared channel and awaits a one-shot reply. If onewire is disabled
+//this is the only way any handler gets to see it. If onewire is disabled
 //(disable_onewire in hard.conf) or busy for more than a few seconds, nobody
-//will ever answer that query, so the wait is capped with a timeout rather
-//than hanging the request forever.
-#[get("/status")]
-pub async fn status(transmitters: &State<Transmitters>) -> content::RawHtml<String> {
+//will ever answer, so the wait is capped rather than hanging the request
+//forever.
+async fn query_status(transmitters: &State<Transmitters>) -> Option<Vec<DeviceStatus>> {
     let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
 
     let sent = match transmitters.lock() {
         Ok(trans) => trans.2.send(StatusQuery { reply_tx }).is_ok(),
         Err(_) => false,
     };
-
     if !sent {
-        return content::RawHtml(render_status_page(None));
+        return None;
     }
 
     match tokio::time::timeout(Duration::from_secs(5), reply_rx).await {
-        Ok(Ok(devices)) => content::RawHtml(render_status_page(Some(devices))),
+        Ok(Ok(devices)) => Some(devices),
         //either the timeout elapsed, or the sender was dropped without
         //replying (e.g. onewire is disabled and nothing ever picks up
-        //StatusQuery messages from that channel) -- both look the same to
-        //the visitor: "couldn't get a fresh status right now"
-        _ => content::RawHtml(render_status_page(None)),
+        //StatusQuery messages from that channel)
+        _ => None,
     }
+}
+
+//Lists every configured relay and yeelight, plus a summary of which ones are
+//currently away from their default (off, non-override) state -- e.g. a
+//relay a PIR turned on and how much longer it'll stay on, or a switch
+//that's put something into override an hour ago. Each row's Actions column
+//links to device_action() below for direct ON/OFF/TOGGLE control.
+#[get("/status")]
+pub async fn status(transmitters: &State<Transmitters>) -> content::RawHtml<String> {
+    let devices = query_status(transmitters).await;
+    content::RawHtml(render_status_page(devices))
+}
+
+fn kind_str(kind: DeviceStatusKind) -> &'static str {
+    match kind {
+        DeviceStatusKind::Relay => "relay",
+        DeviceStatusKind::Yeelight => "yeelight",
+    }
+}
+
+fn kind_matches(kind: DeviceStatusKind, kind_param: &str) -> bool {
+    kind_str(kind) == kind_param
+}
+
+//Direct control from the status page: /device/<relay|yeelight>/<id>/<on|off|toggle>.
+//"toggle" queries current status first (same mechanism as the page itself)
+//to decide which way to flip -- there's a small window between that read and
+//the command actually being applied where a PIR or another click could beat
+//it to it, but for a manual convenience button that's an acceptable
+//trade-off rather than reason to add a dedicated toggle command in onewire.rs.
+//Uses TurnOnProlong/TurnOff with duration: None so onewire.rs falls back to
+//each device's own configured pir_hold_secs/switch_hold_secs, the same as
+//any other remote-triggered action.
+#[get("/device/<kind>/<id>/<action>")]
+pub async fn device_action(
+    transmitters: &State<Transmitters>,
+    kind: &str,
+    id: i32,
+    action: &str,
+) -> Redirect {
+    let (id_relay, id_yeelight) = match kind {
+        "relay" => (Some(id), None),
+        "yeelight" => (None, Some(id)),
+        _ => return Redirect::to("/cmd/status"),
+    };
+
+    let command = match action {
+        "on" => Some(TaskCommand::TurnOnProlong),
+        "off" => Some(TaskCommand::TurnOff),
+        "toggle" => {
+            let is_on = query_status(transmitters)
+                .await
+                .and_then(|devices| {
+                    devices
+                        .into_iter()
+                        .find(|d| d.id == id && kind_matches(d.kind, kind))
+                })
+                .map(|d| d.is_on)
+                .unwrap_or(false);
+            Some(if is_on {
+                TaskCommand::TurnOff
+            } else {
+                TaskCommand::TurnOnProlong
+            })
+        }
+        _ => None,
+    };
+
+    if let Some(command) = command {
+        let task = OneWireTask {
+            command,
+            id_relay,
+            tag_group: None,
+            id_yeelight,
+            duration: None,
+        };
+        if let Ok(trans) = transmitters.lock() {
+            let _ = trans.0.send(task);
+        }
+    }
+
+    Redirect::to("/cmd/status")
 }
 
 fn html_escape(s: &str) -> String {
@@ -134,58 +210,91 @@ fn format_until(remaining: Duration) -> String {
     }
 }
 
+fn render_table(devices: &[&DeviceStatus], empty_message: &str) -> String {
+    if devices.is_empty() {
+        return format!("<p>{}</p>", empty_message);
+    }
+
+    let mut rows = String::new();
+    for d in devices {
+        let kind = kind_str(d.kind);
+        let state = if d.is_on {
+            r#"<span class="on">ON</span>"#
+        } else {
+            r#"<span class="off">off</span>"#
+        };
+        let mode = if d.override_mode { "override" } else { "auto" };
+        let until = match d.remaining {
+            Some(remaining) => format_until(remaining),
+            //override with no stop_after means "stays like this until
+            //manually changed" -- there's no ETA to show, so use an
+            //infinity symbol rather than a bare "-", which would be
+            //indistinguishable from "not toggled"
+            None if d.override_mode => "∞".to_string(),
+            None => "-".to_string(),
+        };
+        let actions = format!(
+            r#"<a href="/cmd/device/{kind}/{id}/on">ON</a> | <a href="/cmd/device/{kind}/{id}/off">OFF</a> | <a href="/cmd/device/{kind}/{id}/toggle">TOGGLE</a>"#,
+            kind = kind,
+            id = d.id,
+        );
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            html_escape(&d.name),
+            kind,
+            state,
+            mode,
+            until,
+            actions,
+        ));
+    }
+
+    format!(
+        "<table>\n<tr><th>Name</th><th>Type</th><th>State</th><th>Mode</th><th>Until</th><th>Actions</th></tr>\n{}</table>",
+        rows
+    )
+}
+
 fn render_status_page(devices: Option<Vec<DeviceStatus>>) -> String {
-    let body = match devices {
+    let devices = match devices {
         None => {
-            r#"<p class="error">Could not reach the onewire task (it may be disabled, or busy) -- try again in a moment.</p>"#
-                .to_string()
-        }
-        Some(devices) if devices.is_empty() => {
-            r#"<p>Nothing is currently in a non-default state.</p>"#.to_string()
-        }
-        Some(mut devices) => {
-            devices.sort_by(|a, b| a.name.cmp(&b.name));
-            let mut rows = String::new();
-            for d in &devices {
-                let kind = match d.kind {
-                    DeviceStatusKind::Relay => "relay",
-                    DeviceStatusKind::Yeelight => "yeelight",
-                };
-                let state = if d.is_on {
-                    r#"<span class="on">ON</span>"#
-                } else {
-                    r#"<span class="off">off</span>"#
-                };
-                let mode = if d.override_mode {
-                    "override"
-                } else {
-                    "auto"
-                };
-                let until = match d.remaining {
-                    Some(remaining) => format_until(remaining),
-                    //override with no stop_after means "stays like this
-                    //until manually changed" -- there's no ETA to show,
-                    //so use an infinity symbol rather than a bare "-",
-                    //which would be indistinguishable from "not toggled"
-                    None if d.override_mode => "∞".to_string(),
-                    None => "-".to_string(),
-                };
-                rows.push_str(&format!(
-                    "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-                    html_escape(&d.name),
-                    kind,
-                    state,
-                    mode,
-                    until,
-                ));
-            }
-            format!(
-                "<table>\n<tr><th>Name</th><th>Type</th><th>State</th><th>Mode</th><th>Until</th></tr>\n{}</table>",
-                rows
+            return render_shell(
+                r#"<p class="error">Could not reach the onewire task (it may be disabled, or busy) -- try again in a moment.</p>"#
+                    .to_string(),
             )
         }
+        Some(d) => d,
     };
 
+    let mut non_default: Vec<&DeviceStatus> = devices
+        .iter()
+        .filter(|d| d.is_on || d.override_mode)
+        .collect();
+    non_default.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut relays: Vec<&DeviceStatus> = devices
+        .iter()
+        .filter(|d| d.kind == DeviceStatusKind::Relay)
+        .collect();
+    relays.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut yeelights: Vec<&DeviceStatus> = devices
+        .iter()
+        .filter(|d| d.kind == DeviceStatusKind::Yeelight)
+        .collect();
+    yeelights.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let body = format!(
+        "<h2>Devices in a non-default state</h2>\n{}\n<h2>All relays</h2>\n{}\n<h2>All yeelights</h2>\n{}",
+        render_table(&non_default, "Nothing is currently in a non-default state."),
+        render_table(&relays, "No relays configured."),
+        render_table(&yeelights, "No yeelights configured."),
+    );
+
+    render_shell(body)
+}
+
+fn render_shell(body: String) -> String {
     format!(
         r#"<!DOCTYPE html>
 <html>
@@ -194,16 +303,19 @@ fn render_status_page(devices: Option<Vec<DeviceStatus>>) -> String {
 <title>hard - device status</title>
 <style>
 body {{ font-family: sans-serif; margin: 2em; color: #222; }}
+h1 {{ margin-bottom: 0.2em; }}
+h2 {{ margin-top: 1.6em; }}
 table {{ border-collapse: collapse; width: 100%; max-width: 60em; }}
 th, td {{ border: 1px solid #ccc; padding: 0.4em 0.8em; text-align: left; }}
 th {{ background: #eee; }}
 .on {{ color: #1a7a1a; font-weight: bold; }}
 .off {{ color: #888; }}
 .error {{ color: #a00; }}
+a {{ margin-right: 0.3em; }}
 </style>
 </head>
 <body>
-<h1>Devices in a non-default state</h1>
+<h1>hard - device status</h1>
 {}
 </body>
 </html>
@@ -229,7 +341,10 @@ impl WebServer {
             }
 
             let result = rocket::build()
-                .mount("/cmd", routes![hello, reload, fan_on, fan_off, status])
+                .mount(
+                    "/cmd",
+                    routes![hello, reload, fan_on, fan_off, status, device_action],
+                )
                 .manage(transmitters.clone())
                 .launch()
                 .await;
