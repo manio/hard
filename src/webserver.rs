@@ -35,6 +35,10 @@ fn status_uri() -> String {
     format!("{}/status", MOUNT_BASE)
 }
 
+fn deye_uri() -> String {
+    format!("{}/deye", MOUNT_BASE)
+}
+
 //Rocket's own built-in request logging ("GET /status ...", "Matched: ...",
 //"Outcome: ...", "Response succeeded.") is all-or-nothing -- there's no way
 //to exclude a single route from it. /status gets polled far more often than
@@ -43,7 +47,7 @@ fn status_uri() -> String {
 //line per request, after the fact (so it has the real response status),
 //skipping whatever paths are considered "quiet".
 fn is_quiet_path(path: &str) -> bool {
-    path == status_uri()
+    path == status_uri() || path == deye_uri()
 }
 
 pub struct RequestLogger;
