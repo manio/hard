@@ -1,9 +1,9 @@
 use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use crate::onewire::StateMachine;
+use crate::util::HumantimeSecs;
 use chrono::{DateTime, Utc};
 use crc16::*;
 use flume::Sender;
-use humantime::format_duration;
 use influxdb::{Client, InfluxDbWriteable};
 use simplelog::*;
 use std::fmt;
@@ -314,7 +314,7 @@ impl InverterMode {
                     }
                 },
                 InverterMode::get_mode_description(current_mode),
-                format_duration(self.last_change.elapsed()).to_string()
+                self.last_change.elapsed().humantime_secs().to_string()
             );
             self.mode = current_mode;
             self.last_change = Instant::now();

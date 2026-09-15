@@ -2,9 +2,9 @@ use crate::database::{CommandCode, DbTask};
 use crate::ethlcd::{BeepMethod, EthLcd};
 use crate::lcdproc::{LcdTask, LcdTaskCommand};
 use crate::rfid::RfidTag;
+use crate::util::HumantimeSecs;
 use flume::Receiver;
 use flume::Sender;
-use humantime::format_duration;
 use ini::Ini;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize, Serializer};
@@ -381,7 +381,7 @@ impl Device {
                     }
                     self.override_mode = false;
                 } else {
-                    duration = format!(", duration: <yellow>{}</>", format_duration(d));
+                    duration = format!(", duration: <yellow>{}</>", d.humantime_secs());
                     if kind == ProlongKind::Switch {
                         self.override_mode = true;
                         duration.push_str(" 🔒");
@@ -397,7 +397,7 @@ impl Device {
             }
         } else {
             let toggled_elapsed = self.last_toggled.unwrap_or(Instant::now()).elapsed();
-            let mut duration = format!(", duration added: <yellow>{}</>", format_duration(d));
+            let mut duration = format!(", duration added: <yellow>{}</>", d.humantime_secs());
             if self.override_mode {
                 if self.switch_hold_secs > d.as_secs_f32()
                     && toggled_elapsed
@@ -1001,7 +1001,7 @@ impl RelayDevices {
                                 "{}: {}: 📌 last_toggled preserved ({})",
                                 get_w1_device_name(relay_board.ow_family, relay_board.ow_address),
                                 name,
-                                format_duration(old_relay.last_toggled.unwrap().elapsed()),
+                                old_relay.last_toggled.unwrap().elapsed().humantime_secs(),
                             );
                         };
                         old_relay.last_toggled
@@ -1020,7 +1020,7 @@ impl RelayDevices {
                                 "{}: {}: 📌 stop_after preserved ({})",
                                 get_w1_device_name(relay_board.ow_family, relay_board.ow_address),
                                 name,
-                                format_duration(old_relay.stop_after.unwrap()),
+                                old_relay.stop_after.unwrap().humantime_secs(),
                             );
                         };
                         old_relay.stop_after

@@ -11,9 +11,9 @@ use crate::database::DbTask;
 use crate::ethlcd::EthLcd;
 use crate::lcdproc::LcdTask;
 use crate::onewire::OneWireTask;
+use crate::util::HumantimeSecs;
 use flume::{Receiver, Sender};
 use futures::future::join_all;
-use humantime::format_duration;
 use std::collections::HashMap;
 use std::env;
 use std::fs::OpenOptions;
@@ -33,6 +33,7 @@ mod remeha;
 mod rfid;
 mod skymax;
 mod sun2000;
+mod util;
 mod webserver;
 
 fn get_config_string(option_name: &str, section: Option<&str>) -> Option<String> {
@@ -409,6 +410,6 @@ async fn main() {
 
     info!(
         "🚩 hard terminated, daemon running time: {}",
-        format_duration(started.elapsed()).to_string()
+        started.elapsed().humantime_secs().to_string()
     );
 }

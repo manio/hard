@@ -5,6 +5,7 @@ use std::time::Duration;
 use crate::database::{CommandCode, DbTask};
 use crate::deye::{Category, DeyeStatusQuery, Parameter};
 use crate::onewire::{DeviceStatus, DeviceStatusKind, OneWireTask, StatusQuery, TaskCommand};
+use crate::util::HumantimeSecs;
 use flume::Sender;
 use rocket::fairing::{Fairing, Info, Kind};
 use rocket::response::content;
@@ -284,15 +285,10 @@ fn format_until(remaining: Duration) -> String {
     match chrono::Duration::from_std(remaining) {
         Ok(d) => {
             let eta = chrono::Local::now() + d;
-            //humantime prints down to nanoseconds by default (e.g. "27m 45s
-            //974ms 322us 966ns"), which is both useless precision for a
-            //relay ETA and wide enough to wrap the column -- round to whole
-            //seconds first
-            let rounded = Duration::from_secs(remaining.as_secs());
             format!(
                 "{} (in {})",
                 eta.format("%Y-%m-%d %H:%M:%S"),
-                humantime::format_duration(rounded)
+                remaining.humantime_secs()
             )
         }
         Err(_) => "-".to_string(),
