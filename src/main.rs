@@ -61,6 +61,18 @@ fn logging_init() {
     let conf = ConfigBuilder::new()
         .set_time_format("%F, %H:%M:%S%.3f".to_string())
         .set_write_log_enable_colors(true)
+        //Rocket installs itself as a `log` backend only if none is set yet
+        //-- since we call simplelog::CombinedLogger::init() below before
+        //Rocket ever launches, its own log::set_boxed_logger() call just
+        //silently no-ops, and every log::info!/debug!/etc. call from inside
+        //the rocket crate goes through *this* logger instead, filtered the
+        //same as our own messages (which is why Rocket's own log_level
+        //config has no effect here). Ignore its target (its crate name) so
+        //its 4-line-per-request output doesn't show up at all; webserver.rs
+        //has its own single-line-per-request Fairing that replaces it, with
+        //the ability to skip specific paths that Rocket's own logging
+        //doesn't have.
+        .add_filter_ignore("rocket".to_string())
         .build();
 
     let mut loggers = vec![];

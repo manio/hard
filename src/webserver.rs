@@ -5,9 +5,10 @@ use std::time::Duration;
 use crate::database::{CommandCode, DbTask};
 use crate::onewire::{DeviceStatus, DeviceStatusKind, OneWireTask, StatusQuery, TaskCommand};
 use flume::Sender;
+use rocket::fairing::{Fairing, Info, Kind};
 use rocket::response::content;
 use rocket::response::Redirect;
-use rocket::{get, routes, State};
+use rocket::{get, routes, Request, Response, State};
 use simplelog::*;
 
 // Just a generic Result type to ease error handling for us. Errors in multithreaded
@@ -31,6 +32,41 @@ fn mount_point() -> &'static str {
 
 fn status_uri() -> String {
     format!("{}/status", MOUNT_BASE)
+}
+
+//Rocket's own built-in request logging ("GET /status ...", "Matched: ...",
+//"Outcome: ...", "Response succeeded.") is all-or-nothing -- there's no way
+//to exclude a single route from it. /status gets polled far more often than
+//it's interesting to see in the log, so instead we turn Rocket's built-in
+//logging off entirely (see worker() below) and replace it with this: one
+//line per request, after the fact (so it has the real response status),
+//skipping whatever paths are considered "quiet".
+fn is_quiet_path(path: &str) -> bool {
+    path == status_uri()
+}
+
+pub struct RequestLogger;
+
+#[rocket::async_trait]
+impl Fairing for RequestLogger {
+    fn info(&self) -> Info {
+        Info {
+            name: "Request Logger",
+            kind: Kind::Response,
+        }
+    }
+
+    async fn on_response<'r>(&self, request: &'r Request<'_>, response: &mut Response<'r>) {
+        if is_quiet_path(request.uri().path().as_str()) {
+            return;
+        }
+        info!(
+            "{} {} -> {}",
+            request.method(),
+            request.uri(),
+            response.status()
+        );
+    }
 }
 
 //shared with all route handlers via Rocket's State/manage(); a plain tuple
@@ -365,12 +401,21 @@ impl WebServer {
                 break;
             }
 
-            let result = rocket::build()
+            //rocket::build() reads Rocket.toml/env/defaults into a Figment;
+            //we merge one override on top (log_level: off) instead of
+            //replacing the whole config, so nothing else you've configured
+            //there (port, address, ...) is affected. Rocket's own request
+            //logging is then entirely replaced by RequestLogger below,
+            //which can skip quiet paths -- Rocket's built-in logging has no
+            //way to do that per-route.
+            let figment = rocket::Config::figment().merge(("log_level", "off"));
+            let result = rocket::custom(figment)
                 .mount(
                     mount_point(),
                     routes![hello, reload, fan_on, fan_off, status, device_action],
                 )
                 .manage(transmitters.clone())
+                .attach(RequestLogger)
                 .launch()
                 .await;
             result.expect("server failed unexpectedly");
