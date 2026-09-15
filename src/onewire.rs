@@ -1844,7 +1844,7 @@ fn sensor_poller_thread(
             }
             // Throttle consecutive sysfs/w1 reads. The 1-Wire protocol timing
             // itself is handled by the kernel w1 master driver.
-            thread::sleep(Duration::from_micros(50));
+            thread::sleep(Duration::from_millis(1));
         }
     }
     info!("{}: sensor poller thread stopped", name);
