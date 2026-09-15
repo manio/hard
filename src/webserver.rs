@@ -14,6 +14,25 @@ use simplelog::*;
 // async contexts needs some extra restrictions
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+//Where all routes below are mounted. Every generated link/redirect in this
+//file is built from this constant rather than hardcoded, so the two can't
+//drift apart (a hardcoded "/cmd/..." link against a "/" mount is exactly how
+//the status page's action links ended up 404ing). Empty means "mounted at
+//the root"; set it to e.g. "/cmd" to move everything under a prefix.
+const MOUNT_BASE: &str = "";
+
+fn mount_point() -> &'static str {
+    if MOUNT_BASE.is_empty() {
+        "/"
+    } else {
+        MOUNT_BASE
+    }
+}
+
+fn status_uri() -> String {
+    format!("{}/status", MOUNT_BASE)
+}
+
 //shared with all route handlers via Rocket's State/manage(); a plain tuple
 //of one-way command channels, plus status_tx for the request/response
 //status query below
@@ -137,17 +156,17 @@ fn kind_matches(kind: DeviceStatusKind, kind_param: &str) -> bool {
 #[get("/device/<kind>/<id>/<action>")]
 pub async fn device_action(
     transmitters: &State<Transmitters>,
-    kind: &str,
+    kind: String,
     id: i32,
-    action: &str,
+    action: String,
 ) -> Redirect {
-    let (id_relay, id_yeelight) = match kind {
+    let (id_relay, id_yeelight) = match kind.as_str() {
         "relay" => (Some(id), None),
         "yeelight" => (None, Some(id)),
-        _ => return Redirect::to("/cmd/status"),
+        _ => return Redirect::to(status_uri()),
     };
 
-    let command = match action {
+    let command = match action.as_str() {
         "on" => Some(TaskCommand::TurnOnProlong),
         "off" => Some(TaskCommand::TurnOff),
         "toggle" => {
@@ -156,7 +175,7 @@ pub async fn device_action(
                 .and_then(|devices| {
                     devices
                         .into_iter()
-                        .find(|d| d.id == id && kind_matches(d.kind, kind))
+                        .find(|d| d.id == id && kind_matches(d.kind, kind.as_str()))
                 })
                 .map(|d| d.is_on)
                 .unwrap_or(false);
@@ -182,7 +201,7 @@ pub async fn device_action(
         }
     }
 
-    Redirect::to("/cmd/status")
+    Redirect::to(status_uri())
 }
 
 fn html_escape(s: &str) -> String {
@@ -234,7 +253,8 @@ fn render_table(devices: &[&DeviceStatus], empty_message: &str) -> String {
             None => "-".to_string(),
         };
         let actions = format!(
-            r#"<a href="/cmd/device/{kind}/{id}/on">ON</a> | <a href="/cmd/device/{kind}/{id}/off">OFF</a> | <a href="/cmd/device/{kind}/{id}/toggle">TOGGLE</a>"#,
+            r#"<a href="{base}/device/{kind}/{id}/on">ON</a> | <a href="{base}/device/{kind}/{id}/off">OFF</a> | <a href="{base}/device/{kind}/{id}/toggle">TOGGLE</a>"#,
+            base = MOUNT_BASE,
             kind = kind,
             id = d.id,
         );
@@ -342,7 +362,7 @@ impl WebServer {
 
             let result = rocket::build()
                 .mount(
-                    "/cmd",
+                    mount_point(),
                     routes![hello, reload, fan_on, fan_off, status, device_action],
                 )
                 .manage(transmitters.clone())
