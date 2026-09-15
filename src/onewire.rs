@@ -10,7 +10,6 @@ use serde::ser::SerializeSeq;
 use serde::{Deserialize, Serialize, Serializer};
 use simplelog::*;
 use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
@@ -1683,19 +1682,20 @@ fn load_geolocation_config(lat: &mut f64, lon: &mut f64) {
 //the original database.rs behavior (a board no longer present in the DB is
 //simply left in place / overwritten, never pruned).
 //
-//Returns the fresh set of (ow_family, ow_address) pairs so the caller can
-//route them to the per-bus polling threads via route_boards_to_pollers().
-//sensor_devices here keeps holding the *metadata* only
-//(kinds/pio_a/pio_b/tags/associated_relays/...); the polling threads keep
-//their own, separate lists for the actual file I/O.
+//Also forwards the fresh set of (ow_family, ow_address) pairs to the
+//dedicated sensor-polling thread over poller_boards_tx, so it knows which
+//w1 devices to read from now on. sensor_devices here keeps holding the
+//*metadata* only (kinds/pio_a/pio_b/tags/associated_relays/...); the polling
+//thread keeps its own, separate list for the actual file I/O.
 fn apply_reload(
     sensor_devices: &mut SensorDevices,
     relay_devices: &mut RelayDevices,
     relays: &mut Relays,
     state_machine: &mut StateMachine,
     data: DeviceReloadData,
+    poller_boards_tx: &Sender<Vec<(u8, u64)>>,
     name: &str,
-) -> Vec<(u8, u64)> {
+) {
     info!("{}: applying reloaded device configuration", name);
 
     sensor_devices.kinds = data.kinds;
@@ -1719,6 +1719,12 @@ fn apply_reload(
         .iter()
         .map(|b| (b.ow_family, b.ow_address))
         .collect();
+    if let Err(e) = poller_boards_tx.send(poller_boards) {
+        error!(
+            "{}: failed to send updated board list to sensor poller thread: {:?}",
+            name, e
+        );
+    }
 
     for row in data.relays {
         relay_devices.add_relay(
@@ -1753,150 +1759,18 @@ fn apply_reload(
     }
 
     state_machine.rfid_tags = data.rfid_tags;
-
-    //handed back to the caller (an async fn) rather than sent to the poller
-    //right here, since routing it now needs to discover the w1 bus layout
-    //first, and that's blocking I/O -- see route_boards_to_pollers()
-    poller_boards
-}
-
-//Parses a w1 device name ("family-address" hex, e.g. "3a-0000000e2c0b") as
-//produced by the kernel and used as sysfs entry/symlink names -- the inverse
-//of get_w1_device_name() above.
-fn parse_w1_device_name(name: &str) -> Option<(u8, u64)> {
-    let (family_str, address_str) = name.split_once('-')?;
-    let family = u8::from_str_radix(family_str, 16).ok()?;
-    let address = u64::from_str_radix(address_str, 16).ok()?;
-    Some((family, address))
-}
-
-//Reads /sys/bus/w1/devices/w1_bus_masterN/w1_master_slaves for every master
-//currently present, building a (family, address) -> bus number map. This is
-//a fast, purely in-kernel-memory sysfs read (the driver's already-known
-//slave list, not a live bus scan), but it's still blocking I/O, so callers
-//run it via spawn_blocking rather than directly on the async runtime.
-//
-//The w1 core already serializes all traffic per physical bus behind its own
-//mutex (mutex_lock(&sl->master->bus_mutex) in w1_reset_select_slave(), see
-//e.g. w1_ds2413.c) -- grouping our own reads by the same bus means two
-//different buses' reads no longer wait on each other in one flat sequential
-//loop; they only wait on each other's actual hardware transactions if they
-//happen to share the same underlying I2C adapter (see route_boards_to_pollers()).
-fn discover_w1_bus_map() -> HashMap<(u8, u64), u32> {
-    let mut map = HashMap::new();
-
-    let root = match std::fs::read_dir(W1_ROOT_PATH) {
-        Ok(entries) => entries,
-        Err(e) => {
-            error!("failed to read {}: {:?}", W1_ROOT_PATH, e);
-            return map;
-        }
-    };
-
-    for entry in root.flatten() {
-        let file_name = entry.file_name();
-        let entry_name = file_name.to_string_lossy();
-        let bus_num: u32 = match entry_name.strip_prefix("w1_bus_master") {
-            Some(suffix) => match suffix.parse() {
-                Ok(n) => n,
-                Err(_) => continue,
-            },
-            None => continue,
-        };
-
-        let slaves_path = format!("{}/{}/w1_master_slaves", W1_ROOT_PATH, entry_name);
-        let contents = match std::fs::read_to_string(&slaves_path) {
-            Ok(c) => c,
-            //e.g. permission error, or the master vanished between listing
-            //the directory and reading this file -- just skip it
-            Err(_) => continue,
-        };
-
-        for line in contents.lines() {
-            let line = line.trim();
-            //empty when no slaves are attached ("not found." on some kernels)
-            if line.is_empty() || line == "not found." {
-                continue;
-            }
-            if let Some(addr) = parse_w1_device_name(line) {
-                map.insert(addr, bus_num);
-            }
-        }
-    }
-
-    map
-}
-
-//Splits a flat address list across one dedicated polling thread per
-//physical w1 bus (spawning new ones on demand, and parking -- not killing --
-//threads for buses that temporarily have no configured devices). Addresses
-//that can't currently be placed on a known bus (e.g. briefly not listed in
-//w1_master_slaves) still get polled, just grouped under a synthetic
-//"unknown" bus id, so they're never silently dropped.
-async fn route_boards_to_pollers(
-    addresses: Vec<(u8, u64)>,
-    bus_pollers: &mut HashMap<u32, Sender<Vec<(u8, u64)>>>,
-    change_tx: &Sender<SensorBoardChange>,
-    cancel_flag: &Arc<AtomicBool>,
-    name: &str,
-) {
-    const UNKNOWN_BUS: u32 = u32::MAX;
-
-    let bus_map = tokio::task::spawn_blocking(discover_w1_bus_map)
-        .await
-        .expect("w1 bus discovery task panicked");
-
-    let mut grouped: HashMap<u32, Vec<(u8, u64)>> = HashMap::new();
-    for addr in addresses {
-        let bus = bus_map.get(&addr).copied().unwrap_or(UNKNOWN_BUS);
-        grouped.entry(bus).or_default().push(addr);
-    }
-
-    //every bus we already have a thread for, plus every bus that just
-    //showed up in this reload -- a bus no longer present gets an empty
-    //list below so its thread parks instead of polling stale addresses
-    let all_buses: HashSet<u32> = bus_pollers
-        .keys()
-        .copied()
-        .chain(grouped.keys().copied())
-        .collect();
-
-    for bus in all_buses {
-        let boards = grouped.remove(&bus).unwrap_or_default();
-
-        let sender = bus_pollers.entry(bus).or_insert_with(|| {
-            let (boards_tx, boards_rx) = flume::unbounded();
-            let poller_cancel_flag = cancel_flag.clone();
-            let poller_change_tx = change_tx.clone();
-            let poller_name = format!("{}-bus{}", name, bus);
-            tokio::task::spawn_blocking(move || {
-                sensor_poller_thread(boards_rx, poller_change_tx, poller_cancel_flag, poller_name);
-            });
-            boards_tx
-        });
-
-        if let Err(e) = sender.send(boards) {
-            error!(
-                "{}: failed to send updated board list to bus {} poller thread: {:?}",
-                name, bus, e
-            );
-        }
-    }
 }
 
 //Runs on a dedicated blocking-pool thread for the whole lifetime of the
-//onewire task (one instance per physical w1 bus, spawned on demand by
-//route_boards_to_pollers() the first time that bus is seen -- not
-//per-iteration). Owns its own private list of SensorBoard entries -- used
-//here purely for their open()/read_state() I/O, never for the
-//pio_a/pio_b/kinds/tags metadata, which stays solely in the coordinator's
-//SensorDevices. This means no lock is needed anywhere: the per-bus lists
-//and the coordinator's metadata list are independent, and are kept in sync
-//only by the address lists the coordinator pushes over boards_rx every time
-//a device reload happens.
+//onewire task (spawned once via spawn_blocking, not per-iteration). Owns its
+//own private list of SensorBoard entries -- used here purely for their
+//open()/read_state() I/O, never for the pio_a/pio_b/kinds/tags metadata,
+//which stays solely in the coordinator's SensorDevices. This means no lock
+//is needed anywhere: the two lists (this one and the coordinator's) are
+//independent, and are kept in sync only by the address list the coordinator
+//pushes over boards_rx every time a device reload happens.
 //
-//Detected changes are pushed to the coordinator over change_tx (shared by
-//every bus's thread -- flume senders are freely cloneable) as soon as
+//Detected changes are pushed to the coordinator over change_tx as soon as
 //they're found; the coordinator applies them asynchronously and drives its
 //own pacing (see apply_sensor_change() and the main loop in worker()).
 fn rebuild_poller_boards(addrs: Vec<(u8, u64)>) -> Vec<SensorBoard> {
@@ -2477,18 +2351,30 @@ impl OneWire {
     ) -> std::result::Result<(), WorkerError> {
         info!("{}: Starting task", self.name);
 
-        //one dedicated polling thread per physical w1 bus, spawned on
-        //demand by route_boards_to_pollers() the first time a reload shows
-        //a device on that bus; all of them report detected changes onto
-        //this single shared channel
-        let mut bus_pollers: HashMap<u32, Sender<Vec<(u8, u64)>>> = HashMap::new();
+        //channel for pushing fresh (ow_family, ow_address) board lists to the
+        //poller thread whenever a device reload rebuilds sensor_devices, and
+        //the channel the poller reports detected changes back on
+        let (poller_boards_tx, poller_boards_rx): (
+            Sender<Vec<(u8, u64)>>,
+            Receiver<Vec<(u8, u64)>>,
+        ) = flume::unbounded();
         let (sensor_change_tx, sensor_change_rx): (
             Sender<SensorBoardChange>,
             Receiver<SensorBoardChange>,
         ) = flume::unbounded();
 
+        let poller_cancel_flag = worker_cancel_flag.clone();
+        let poller_name = self.name.clone();
+        tokio::task::spawn_blocking(move || {
+            sensor_poller_thread(
+                poller_boards_rx,
+                sensor_change_tx,
+                poller_cancel_flag,
+                poller_name,
+            );
+        });
         //if there's already device data loaded (shouldn't normally happen
-        //this early, but keeps the pollers in sync in all cases), route it
+        //this early, but keeps the poller in sync in all cases), forward it
         if !self.sensor_devices.sensor_boards.is_empty() {
             let boards: Vec<(u8, u64)> = self
                 .sensor_devices
@@ -2496,14 +2382,7 @@ impl OneWire {
                 .iter()
                 .map(|b| (b.ow_family, b.ow_address))
                 .collect();
-            route_boards_to_pollers(
-                boards,
-                &mut bus_pollers,
-                &sensor_change_tx,
-                &worker_cancel_flag,
-                &self.name,
-            )
-            .await;
+            let _ = poller_boards_tx.send(boards);
         }
 
         match &ethlcd {
@@ -2554,25 +2433,17 @@ impl OneWire {
             }
 
             //apply any device reload(s) sent by the database task (this also
-            //routes the fresh board address list to the per-bus poller
-            //threads, spawning new ones on demand)
+            //forwards the fresh board address list to the poller thread)
             while let Ok(data) = self.reload_receiver.try_recv() {
-                let poller_boards = apply_reload(
+                apply_reload(
                     &mut self.sensor_devices,
                     &mut self.relay_devices,
                     &mut self.relays,
                     &mut state_machine,
                     data,
+                    &poller_boards_tx,
                     &self.name,
                 );
-                route_boards_to_pollers(
-                    poller_boards,
-                    &mut bus_pollers,
-                    &sensor_change_tx,
-                    &worker_cancel_flag,
-                    &self.name,
-                )
-                .await;
             }
             if state_machine.cesspool_level.level.len() < self.sensor_devices.max_cesspool_level {
                 state_machine
