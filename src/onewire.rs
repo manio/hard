@@ -1572,6 +1572,11 @@ pub struct DeviceStatus {
     pub is_on: bool,
     pub override_mode: bool,
     pub remaining: Option<Duration>, //time left until auto turn-off, if known
+    //this device's own configured hold times, exposed so the webserver can
+    //pre-fill the "how long?" duration dialog on the ON/OFF actions with
+    //the right default per device, instead of one hardcoded value for all
+    pub pir_hold_secs: f32,
+    pub switch_hold_secs: f32,
 }
 
 //sent by the webserver task to ask the coordinator for a snapshot of
@@ -1616,6 +1621,8 @@ fn collect_device_status(relay_devices: &RelayDevices, relays: &Relays) -> Vec<D
                     is_on,
                     override_mode: dev.override_mode,
                     remaining: remaining_for(dev),
+                    pir_hold_secs: dev.pir_hold_secs,
+                    switch_hold_secs: dev.switch_hold_secs,
                 });
             }
         }
@@ -1630,6 +1637,8 @@ fn collect_device_status(relay_devices: &RelayDevices, relays: &Relays) -> Vec<D
                 is_on: yeelight.powered_on,
                 override_mode: dev.override_mode,
                 remaining: remaining_for(dev),
+                pir_hold_secs: dev.pir_hold_secs,
+                switch_hold_secs: dev.switch_hold_secs,
             });
         }
     }

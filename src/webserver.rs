@@ -219,13 +219,22 @@ fn kind_matches(kind: DeviceStatusKind, kind_param: &str) -> bool {
 //Uses TurnOnProlong/TurnOff with duration: None so onewire.rs falls back to
 //each device's own configured pir_hold_secs/switch_hold_secs, the same as
 //any other remote-triggered action.
-#[get("/device/<kind>/<id>/<action>")]
+//minutes: optional duration from the status page's askDuration() prompt.
+//Only meaningful for "on" today -- onewire.rs's turn_on_prolong() discards
+//the passed-in duration for a Remote-kind "off" (it always clears
+//stop_after there), so an OFF with ?minutes=.. behaves the same as one
+//without for now.
+#[get("/device/<kind>/<id>/<action>?<minutes>")]
 pub async fn device_action(
     transmitters: &State<Transmitters>,
     kind: String,
     id: i32,
     action: String,
+    minutes: Option<f32>,
 ) -> Redirect {
+    let duration = minutes
+        .filter(|m| *m > 0.0)
+        .map(|m| Duration::from_secs_f32(m * 60.0));
     let (id_relay, id_yeelight) = match kind.as_str() {
         "relay" => (Some(id), None),
         "yeelight" => (None, Some(id)),
@@ -260,7 +269,7 @@ pub async fn device_action(
             id_relay,
             tag_group: None,
             id_yeelight,
-            duration: None,
+            duration,
         };
         if let Ok(trans) = transmitters.lock() {
             let _ = trans.0.send(task);
@@ -318,11 +327,19 @@ fn render_table(devices: &[&DeviceStatus], empty_message: &str) -> String {
             None if d.override_mode => "∞".to_string(),
             None => "-".to_string(),
         };
+        //ON/OFF go through askDuration() (see render_shell's <script>), which
+        //prompts for how many minutes the action should last and appends it
+        //as ?minutes=.. -- pre-filled per-device from pir_hold_secs/
+        //switch_hold_secs rather than one hardcoded default for everyone.
+        //TOGGLE stays a plain link: its direction isn't known up front, so
+        //there's no single default duration to offer.
         let actions = format!(
-            r#"<a href="{base}/device/{kind}/{id}/on">ON</a> | <a href="{base}/device/{kind}/{id}/off">OFF</a> | <a href="{base}/device/{kind}/{id}/toggle">TOGGLE</a>"#,
+            r#"<a href="javascript:void(0)" onclick="return askDuration('{kind}',{id},'on',{pir_min:.1},{switch_min:.1})">ON</a> | <a href="javascript:void(0)" onclick="return askDuration('{kind}',{id},'off',{pir_min:.1},{switch_min:.1})">OFF</a> | <a href="{base}/device/{kind}/{id}/toggle">TOGGLE</a>"#,
             base = MOUNT_BASE,
             kind = kind,
             id = d.id,
+            pir_min = d.pir_hold_secs / 60.0,
+            switch_min = d.switch_hold_secs / 60.0,
         );
         rows.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
@@ -479,6 +496,36 @@ th {{ background: #eee; }}
 .error {{ color: #a00; }}
 a {{ margin-right: 0.3em; }}
 </style>
+<script>
+// Asks how many minutes an ON/OFF action should last, then navigates to
+// /device/<kind>/<id>/<action>?minutes=.. . Defaults to this device's own
+// configured switch_hold_secs (manual button press == a switch-style
+// action) rather than one fixed value for every device -- pir_min is
+// passed too in case you'd rather default ON to the PIR hold time instead.
+// Cancelling the prompt, or leaving it empty, does nothing.
+function askDuration(kind, id, action, pirMin, switchMin) {{
+    var def = switchMin > 0 ? switchMin : pirMin;
+    var input = prompt(
+        (action === 'on' ? 'ON' : 'OFF') + ': czas trwania w minutach',
+        def > 0 ? def.toFixed(0) : ''
+    );
+    if (input === null) {{
+        return false;
+    }}
+    input = input.trim();
+    if (input !== '') {{
+        var minutes = parseFloat(input.replace(',', '.'));
+        if (!isFinite(minutes) || minutes <= 0) {{
+            alert('Nieprawidłowa wartość: ' + input);
+            return false;
+        }}
+        window.location.href = '{base}/device/' + kind + '/' + id + '/' + action + '?minutes=' + minutes;
+    }} else {{
+        window.location.href = '{base}/device/' + kind + '/' + id + '/' + action;
+    }}
+    return false;
+}}
+</script>
 </head>
 <body>
 <h1>hard - device status</h1>
@@ -486,7 +533,8 @@ a {{ margin-right: 0.3em; }}
 </body>
 </html>
 "#,
-        body
+        body,
+        base = MOUNT_BASE,
     )
 }
 
