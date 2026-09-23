@@ -25,6 +25,7 @@ Features:
 - skymax (aka [Voltronic Power](https://voltronicpower.com/)) inverter support
 - remeha (aka De Dietrich) boiler support
 - Huawei SUN2000 inverter support
+- Deye SG05LP3 hybrid inverter
 
 The daemon is running on my Raspberry Pi in a specific minimal ramdisk environment:<br>
 https://skyboo.net/2017/04/rpi-creating-a-ram-disk-running-linux-environment-from-nfs-booted-raspbian/
